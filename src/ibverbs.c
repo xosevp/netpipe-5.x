@@ -727,18 +727,22 @@ void init_context(struct ibv_device *ib_dev)
 
       // Determine the max inline data size
 
-   qp_init_attr.cap.max_inline_data = max_inline_data = 1 << 23;
-   do {
-      ib_qp[0] = ibv_create_qp(ib_pd, &qp_init_attr);
+   if (inline_data)
+   {
+      qp_init_attr.cap.max_inline_data = max_inline_data = 1 << 23;
+      do {
+         ib_qp[0] = ibv_create_qp(ib_pd, &qp_init_attr);
 
-      if( ib_qp[0] != NULL ) break;
+         if( ib_qp[0] != NULL ) break;
 
-      if( max_inline_data > 0 ) max_inline_data >>= 1;
-      qp_init_attr.cap.max_inline_data = max_inline_data;
-   } while( max_inline_data >= 1 );
-   if( ib_qp[0] ) ibv_destroy_qp( ib_qp[0] );
-   mprintf("  inline %d  ", max_inline_data);
-   if( ! inline_data ) max_inline_data = 0;
+         if( max_inline_data > 0 ) max_inline_data >>= 1;
+         qp_init_attr.cap.max_inline_data = max_inline_data;
+      } while( max_inline_data >= 1 );
+      if( ib_qp[0] ) ibv_destroy_qp( ib_qp[0] );
+      mprintf("  inline %d  ", max_inline_data);
+   } else {
+      max_inline_data = 0;
+   }
 
       // Now create 1 or more QP's
 
