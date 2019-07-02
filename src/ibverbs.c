@@ -604,8 +604,9 @@ void exchange_ib_settings( )
 {
    MPI_Status status;
 
-   MPI_Send( &local,  sizeof(local),  MPI_BYTE, mypair, 100, MPI_COMM_WORLD);
-   MPI_Recv( &remote, sizeof(remote), MPI_BYTE, mypair, 100, MPI_COMM_WORLD, &status);
+   MPI_Sendrecv( &local,  sizeof(local),  MPI_BYTE, mypair, 100,
+                 &remote, sizeof(remote), MPI_BYTE, mypair, 100,
+                 MPI_COMM_WORLD, &status);
 }
 
 void ready_connection( )

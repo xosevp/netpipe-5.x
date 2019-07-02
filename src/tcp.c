@@ -85,8 +85,9 @@ void Module_Setup()
    if( !strcmp( myhost, "helios" ) ) { sprintf( myhost, "ns1.beocat.ksu.edu" ); }
    if( !strcmp( myhost, "moira"  ) ) { sprintf( myhost, "ns1.beocat.ksu.edu" ); }
 
-   MPI_Send( myhost,     sizeof(myhost),     MPI_BYTE, mypair, 0, MPI_COMM_WORLD);
-   MPI_Recv( remotehost, sizeof(remotehost), MPI_BYTE, mypair, 0, MPI_COMM_WORLD, &status);
+   MPI_Sendrecv( myhost,     sizeof(myhost),     MPI_BYTE, mypair, 0,
+                 remotehost, sizeof(remotehost), MPI_BYTE, mypair, 0,
+                 MPI_COMM_WORLD, &status);
 
       // Create the listen socket, for any interface on my port
 
