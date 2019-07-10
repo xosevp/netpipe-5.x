@@ -1,0 +1,21 @@
+Blocking until 2 .node.minerva.pid# files exist
+Done blocking, now reading PID numbers
+PID 13170 has smp_rank = 0
+PID 13171 has smp_rank = 1
+
+All 2 procs are on the same SMP node
+
+Creating the shared-memory segments
+Attaching to the shared-memory segments
+Handshake between all nodes - Completed successfully
+Done with all the handshaking, exiting MP_Init()
+------------------------------------------------
+------------------------------------------------
+Dumping the current state of the message queues:
+************************************************
+78 sends with 0 partially buffered
+   (0.000000% of traffic buffered, 0 packets)
+78 recvs with 0 partially buffered
+   (0.000000% of traffic buffered, 0 packets)
+0 interrupts handled servicing 0 sockets
+************************************************

@@ -1,0 +1,18 @@
+#!/bin/csh -f
+#
+# USAGE: smp_rank myuid mypid progname
+# returns ranking lowest to highest for the given PID among those that 
+# match the given UID and prognames.
+# 
+# Called from mp_init() of tcp.c to determine the PID rank on an SMP node.
+
+set UNIX=`uname`
+
+set psa ="ps auxw"
+if ("$UNIX" == "IRIX" || "$UNIX" == "IRIX64") then
+  set psa = "ps -ef"
+endif
+if ("$UNIX" == "SunOS" ) then
+  set psa = "ps -Al"
+endif
+

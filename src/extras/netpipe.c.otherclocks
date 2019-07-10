@@ -1,0 +1,1226 @@
+//////////////////////////////////////////////////////////////////////////////
+// "NetPIPE" -- Network Protocol Independent Performance Evaluator.
+// Copyright 1997, 1998 Iowa State University Research Foundation, Inc.
+// NetPIPE is free software distrubuted under the GPL license.
+//
+// This code was originally developed by Quinn Snell, Armin Mikler,
+// John Gustafson, and Guy Helmer at Ames Laboratory. (original core, MPI, TCP)
+//
+// Further developed by Dave Turner at Ames Lab 2000-2005 with many contributions
+// from ISU students (Bogdan Vasiliu, Adam Oline, Xuehua Chen, Brian Smith).
+// (many of the low level modules, complete rewrite of the core)
+//
+// Currently being developed Fall 2014- by Dave Turner at Kansas State University
+// (total rewrite of core and modules plus IO, aggregate, ibverbs modules)
+// Email: DrDaveTurner@gmail.com
+//////////////////////////////////////////////////////////////////////////////
+// TODO: I have not tested the workload code in ages
+
+// The default cache mode uses a double buffer for each process.  This
+// shows better performance when data gets bounced between cache on
+// SMP nodes. Running without cache effects (--nocache) uses separate send and 
+// recv buffers each time as a moving window through a very large memory buffer 
+// ( > cache size ).  This guarantees that data starts in main memory.
+// Both these cases are needed to understand the SMP performance
+// since both cases occur in applications while other modules may not be affected.
+//
+// The bidirectional mode also uses double buffers.  Both procs send data
+// simultaneously then receive it before sending it out again from
+// the recv buffer.  This double buffering is needed to guarantee 
+// that data does not overwrite the previous message before it is read.
+//
+// Aggregate measurements using multiple pairs of processes uses a sync before 
+// proc 0 starts the clock and another before proc 0 stops the clock.  This adds 
+// a little latency which doesn't matter but allows all timing to be done on proc 0.
+// mpi.c also has a custom Sync() function to replace MPI_Barrier().
+
+
+   // Pull in global variables from netpipe.h
+
+#define _GLOBAL_VAR_
+#include "netpipe.h"
+
+double     *failures;
+int         integrityCheck = 0, nfails;   // Integrity check
+char * bytestring( int nbytes );
+char * bitstring( double gbps );
+char * timestring( double secs );
+double AverageBandwidth( double rate );
+
+
+int main(int argc, char *argv[])
+{
+   FILE       *out;            // Output data file
+   char       *arg, *opt, *outfile, myhost[100];
+   int        *memcache;       // Very large buffer used to flush cache
+   int         npairs;         // nprocs/2 or 1 for disk, memcpy, theo
+
+   int         i, j, k, n, nq, // Loop indices
+               nrepeat,        // Number of ping-pongs per trial
+               len,            // Number of bytes to be transmitted
+               inc=0,          // Main loop increment value
+               pert,           // Main loop perturbation value (3)
+               finished=0,     // Set to 1 when main loop is finished
+               factors_of_2=0; // Flag to set for testing factors of 2 only
+  
+   double      t, t0, t1, t2,  // Time variables
+               tlast,          // Used to calc next nrepeat
+               tlat,           // The latency time used in workload calc
+               t_raw,
+              *times,          // Array for gathering times from other pairs
+               avg_latency=0,  // Latency averaged over the first 10 tests
+               max_bandwidth,  // Average of 10 highest bandwidth tests
+               runtime=0.25;   // Goal time for each trial
+   double      min_time, max_time, avg_time;
+   double      min_gbps, avg_gbps, max_gbps;  // Gigabits per second for each trial
+   int         bytes;          // number of bytes in the message
+   double      cal_gflops,gflops, flops, cpu_load; // Measure of the CPU workload
+   double      tcal;
+   int         cal_flops;
+   int         TestCalls, TCalls;
+
+
+      // Initialize vars that may change from default due to input arguments
+
+   nprocs = myproc = transmitter = mypair = source = disk = 0;
+   bidir = stream = workload = burst = async = offset = 0;
+   cache = 1;              // Default is to test with cache effects
+   perturbation = 3;
+   nrepeat_const = 0;
+   ntrials = 7;
+   start= 1;               // Starting value for the message size tests
+   end = 10000000;         // Max meessage size
+   stoptime = 1.0;         // Stop if a trial exceeds 1.0 seconds
+   est_latency = 10.0e-6;  // Estimated latency may be set in each module
+                           // This is just used to calc initial nrepeat
+
+   outfile = strdup( "np.out" );
+   module = strdup( "" );  // Initialize to nothing, set in Module_Init() if needed
+
+   Module_Init( &argc, &argv);      // Let modules initialize variables as needed
+
+      // Set the first half to be transmitters
+
+   if( myproc < nprocs/2 || nprocs == 1 || !strcmp( module, "memcpy") ) transmitter = 1;
+   else transmitter = 0;
+   mypair = source = nprocs - 1 - myproc;
+
+      // Parse the arguments. Run NetPIPE with --usage for a full description.
+
+   for( i = 1; i < argc; i++ ) {  // Loop through all input arguments to NetPIPE
+
+      arg = argv[i];
+      while( arg[0] == '-' ) arg++;   // Get rid of leading -'s
+
+      opt = "";
+      if( i+1 != argc && argv[i+1][0] != '-' ) {
+         opt = argv[i+1];
+         i++;
+      }
+
+      if( !strcmp( arg, "usage") ) {
+         PrintUsage( NULL );
+
+      } else if( !strcmp( arg, "repeats") || !strcmp( arg, "repeat") ) {
+         nrepeat_const = atoi(opt);
+         mprintf("Using a constant number of %d transmissions\n", nrepeat_const);
+         mprintf("NOTE: Be leary of timings that are close to the clock accuracy.\n");
+
+      } else if( !strcmp( arg, "workload") ) {
+         workload = 1;
+         async = 1;
+         mprintf("Measuring the CPU workload\n");
+         mprintf("This requires asynchronous communications\n");
+         mprintf("Workloads for small messages have a 10%% uncertainty,\n");
+         mprintf("and the workload measurement may affect the communication performance.\n");
+
+      } else if( !strcmp( arg, "nocache") || !strcmp( arg, "inval") ) {
+         cache = 0;
+         mprintf("Pass data from a different memory buffer each time.\n");
+         mprintf("The data will always come from main memory\n");
+
+      } else if( !strcmp( arg, "cache") ) {     // This is the default anyway
+         cache = 1;
+         mprintf("Test using cache effects.  Use the same data buffers each time\n");
+
+      } else if( !strcmp( arg, "burst") ) {  // Prepost all ARecv's
+         burst = 1;
+         async = 1;
+         mprintf("Preposting all receives before a timed run\n");
+
+      } else if( !strcmp( arg, "offsets") || !strcmp( arg, "offset") ) {
+         ERRCHECK( !opt, "No offset value given\n");
+         offset = atoi(opt);
+         mprintf("Offsetting send and receive buffers by %d from page aligned\n", offset);
+
+      } else if( !strcmp( arg, "perturbation") || !strcmp( arg, "pert") ) {
+         ERRCHECK( !opt, "No perturbation value given\n");
+         perturbation = atoi(opt);
+
+      } else if( !strcmp( arg, "factorsof2") || !strcmp( arg, "fac2") ) {
+         factors_of_2 = 1;
+         perturbation = 0;
+         mprintf("Only testing factors of 2 for comparisong with other benchmarks\n");
+
+      } else if( !strcmp( arg, "quick") ) {
+         ntrials = 3;
+         runtime = 0.10;
+         perturbation = 0;
+
+      } else if( !strcmp( arg, "quicker") ) {
+         ntrials = 1;
+         runtime = 0.10;
+         perturbation = 0;
+
+      } else if( !strcmp( arg, "quickest") ) { // 1 repeat 1 trial
+         ntrials = 1;
+         runtime = 0.10;
+         perturbation = 0;
+         if( nrepeat_const == 0 ) nrepeat_const = 1;
+
+      } else if( !strcmp( arg, "outfile") || !strcmp( arg, "o") ) {
+         ERRCHECK( !opt, "No output file name given\n");
+         outfile = strdup(opt);
+         mprintf("Saving output to %s\n\n", outfile);
+
+      } else if( !strcmp( arg, "stream") ) {
+         stream = 1;
+         ERRCHECK( bidir, "You cannot use stream and bidirection together\n");
+         mprintf("Streaming data in one direction\n");
+         mprintf("    Streaming does not necessarily provide an accurate measurement\n");
+         mprintf("    of the latency since small messages may get bundled together.\n");
+
+      } else if( !strcmp( arg, "start") ) {    // lower bound for the message size
+         ERRCHECK( !opt, "No lower bound given\n");
+         start = atoi(opt);
+         ERRCHECK( start < 1 || start > end, 
+            "Lower bound %d must be positive and less than upper %d \n", start, end);
+
+      } else if( !strcmp( arg, "end") ) {    // upper bound for the message size
+         ERRCHECK( !opt, "No upper bound given\n");
+         end = atoi(opt);
+         ERRCHECK( end < start, "end %d must greater than start %d\n", end, start);
+
+      } else if( !strcmp( arg, "bidirectional") || !strcmp( arg, "bidir")  ) {
+         bidir = 1;
+         transmitter = 1;    // Both procs are transmitters
+         ERRCHECK( stream, "You cannot use stream and bidirection together\n");
+         mprintf("Bidirectional mode using %d pairs of processes.\n", nprocs/2);
+         mprintf("The output shows the combined throughput.\n");
+
+      } else if( !strcmp( arg, "integrity") ) {
+         integrityCheck = 1;
+         ntrials = 1;
+         mprintf("Doing a message integrity check instead of measuring performance\n");
+
+      } else if( !strcmp( arg, "printhostnames") ) {
+
+         Sync();
+         gethostname( myhost, 100 );
+         printf("Proc %d is on host %s\n", myproc, myhost);
+         Sync();
+         mprintf("\n");
+
+      } else {
+         Module_ArgOpt( arg, opt );  // Send others to the modules
+      }
+   }
+
+   Module_Setup();     // Handshake and set global variables
+
+   times    = malloc( nprocs * sizeof(double) );
+   failures = malloc( nprocs * sizeof(double) );
+
+   if( !strcmp( module, "memcpy" ) ) { 
+      npairs = nprocs;
+   } else if( nprocs == 1 ) {
+      npairs = 1;
+   } else {
+      npairs = nprocs/2;
+   }
+
+   ERRCHECK(integrityCheck && burst, "Integrity check is not supported with burst mode\n");
+
+   if( nprocs > 2 && bidir == 0 && strcmp( module, "memcpy") ) {
+      mprintf("\nMultiple overlapping unidirectional communications may become out \n");
+      mprintf("of sync.  I recommend bidirectional communications here.\n\n");
+   }
+
+   if( myproc == 0 ) {   // Open the output file np.out
+      out = fopen(outfile, "w");
+      ERRCHECK( out==NULL, "Can't open %s for output\n", outfile);
+   }
+
+      // Very rough estimate for the clock accuracy
+
+   t0 = myclock(); t0 = myclock(); t0 = myclock();
+   t1 = myclock();
+   mprintf("\n      Clock accuracy ~ %s\n\n", timestring(t1-t0) );
+
+   tlast = est_latency;   // Estimated latency used to calc initial nrepeat
+
+      // Calibrate the CPU workload rate if needed
+
+   if( workload ) {
+
+         // Pull the data into cache
+
+      flops = 0.0;
+      DoWork( NELEMENTS, &flops );
+
+         // Now calibrate
+
+      flops = 0.0;
+      t0 = myclock();
+
+         for( i=0; i<10000; i++ ) DoWork( NELEMENTS, &flops );
+
+      tcal = (myclock()-t0);
+
+         // Scale down to approximately 1 us test times
+
+      cal_flops = flops * 1e-6 / tcal;
+
+      flops = 0.0;
+      t0 = myclock();
+
+         for( i=0; i<1000; i++ ) DoWork( 10*cal_flops, &flops );
+
+      tcal = (myclock()-t0);
+
+      cal_gflops = 1e-9 * flops / tcal;
+
+      if( transmitter ) {
+         fprintf(stderr,"\n The CPU delivers %8.2lf GFlops when the comm system is idle\n",
+                 cal_gflops);
+         fprintf(stderr," %lf Gflops in %lf seconds\n", 1e-9*flops, tcal);
+         fprintf(stderr," Each call to DoWork will do %d Flops taking %lf microseconds\n\n",
+                 cal_flops, 1000*tcal);
+      }
+
+      tcal /= 1000;    // Seconds per cal to DoWork
+   }
+
+      // Do setup for nocache mode, using two distinct very larfe buffers
+
+   if( ! cache ) {
+
+          // Allocate dummy pool of memory to flush cache with
+
+      memcache = (int *) malloc( MEMSIZE );
+      ERRCHECK( memcache == NULL, "Error mallocing memcache\n");
+      bzero( memcache, MEMSIZE);
+
+          // Allocate large memory pools
+
+       MallocBufs( MEMSIZE ); 
+   }
+
+      // Set a starting value for the message size increment
+
+   inc = (start > 1) ? start / 2 : 1;
+   nq  = (start > 1) ? 1 : 0;
+
+       ////////////////////////////
+       // Main loop of benchmark //
+       ////////////////////////////
+
+   mprintf("Start testing with %d trials for each message size\n", ntrials);
+
+   n = 0;
+   len = start;
+
+   while( ! finished ) {
+      
+      if( factors_of_2 ) inc = len;              // Double the test size each time
+      else if (nq > 2)   inc = ((nq % 2))? inc + inc: inc; // Exponential with perts
+       
+          // This is a perturbation loop to test nearby values
+
+      for (pert = ((perturbation > 0) && (inc > perturbation+1)) ? -perturbation : 0;
+           pert <= perturbation; 
+           pert += ((perturbation > 0) && (inc > perturbation+1)) 
+                        ? perturbation : perturbation+1)
+      {
+         n++;
+
+         buflen = len + pert;
+
+            // Calculate how many times to repeat the experiment
+
+         if( disk > 1 ) {
+            nrepeat = disk;                // Copy the file 'disk' times per trial
+         } else if( disk ) {
+            nrepeat = 20000000 / buflen;   // Sliding but consistent scale for disk IO
+         } else if( nrepeat_const ) {
+            nrepeat = nrepeat_const;
+         } else {
+            nrepeat = MAX( runtime / tlast, 3);
+         }
+
+         Broadcast(&nrepeat);
+
+         ERRCHECK( nrepeat <= 0 || nrepeat > 1000000000, 
+                   "ERROR: nrepeat = %u is out of range (tlast = %lf)\n", nrepeat, tlast);
+
+         mprintf("%3d: %s %9u times -->  ", n, bytestring(buflen), nrepeat);
+         fflush( stdout );
+
+         if( cache ) {  // Allocate the send and recv double buffers
+                        // with page alignment and room for offsets
+
+            MallocBufs( 2*buflen );
+
+         } else {    // Eliminate cache effects using 2 very large distinct buffers.
+                     // Pointers will walk through the large buffers in main memory
+                     // Set at 200 MB >> sum of all cache memory in the computer
+ 
+            InitBufferData( MEMSIZE );
+         }
+
+         min_time = LONGTIME;
+         max_time = avg_time = 0;
+         gflops = 0.0;
+         failures[myproc] = 0.0;
+
+            // Finally, we get to transmit or receive and time
+
+         if( transmitter || bidir ) {   // We send first then recv
+
+            for (i = 0; i < ntrials; i++) {   // Typically 1-7 trials per data point
+
+               if(burst && !stream) {   // burst requires async too
+
+                  SavePtrs( s_ptr, r_ptr );
+
+                  for( j=0; j<nrepeat; j++ ) {
+
+                     PrepostRecv();
+                     AdvancePtrs( &s_ptr, &r_ptr, NULL, &r_ptr, buflen );
+                  }
+
+                  RestorePtrs( &s_ptr, &r_ptr );
+               }
+
+                  // Flush the cache using the dummy buffer
+
+               if( !cache ) flushcache(memcache, MEMSIZE/sizeof(int));
+
+               flops = 0.0;  TCalls = 1;
+
+               Sync();
+
+               t0 = myclock();
+
+                  // Transmitter: send data then recv, nrepeat's times
+                  // If streaming we only send
+
+               for (j = 0; j < nrepeat; j++) {
+
+                  bytesLeft = buflen;
+
+                  if( !burst && async && !stream) PrepostRecv();
+
+                  SetupBufferData();
+                  SendData();
+                  AdvancePtrs( &ds_ptr, &dr_ptr, &s_ptr, &dr_ptr, buflen );
+
+                  if( !stream ) {
+
+                        // Do CPU workload measurement if needed
+
+                     if( workload ) {
+
+                        while( ! TestForCompletion() ) {
+
+                           tcal = 1e6 * MAX( tlast / 100.0, tlat / 10.0);
+
+                           DoWork( tcal * cal_flops, &flops );
+
+                           TCalls ++;
+                        }
+                     }
+
+                     RecvData();
+                     CheckBufferData();   // Check the first and last bytes
+                     AdvancePtrs( &s_ptr, &r_ptr, &ds_ptr, &r_ptr, buflen );
+                  }
+               }
+
+#if defined(THEO)
+               t = Theo_Time( );         // Get a theoretically calc time from theo.c
+#else
+               if( npairs > 1 ) Sync();  // Don't worry about latency for multi-pair
+               t = t_raw = (myclock() - t0);
+
+               t /= nrepeat;
+
+               if( !stream && !bidir) t /= 2;
+#endif
+
+                  // t is now the 1-directional transmission time
+                  // Calc the avg latency using the first 10 tests
+
+               if( n != 0 && n <= 10 ) avg_latency += t; // Average out later
+
+               Reset();
+ 
+               min_time = MIN(min_time, t);
+               max_time = MAX(max_time, t);
+               avg_time += t / ntrials;
+
+               if( workload && t == min_time ) {
+                  gflops = 1e-9 * flops / t_raw;
+                  TestCalls = TCalls;
+               }
+            }
+
+         } else {   // Receiver:  Recv data first then send it back
+                    // If we are streaming then just recv continuously
+
+            for( i = 0; i < ntrials; i++ ) {
+
+
+               if( burst ) {  // Prepost all recv's at once
+
+                  SavePtrs( s_ptr, r_ptr );
+
+                  for (j=0; j < nrepeat; j++) {
+
+                     PrepostRecv();
+                     AdvancePtrs( &s_ptr, &r_ptr, NULL, &r_ptr, buflen );
+                  }
+
+                  RestorePtrs( &s_ptr, &r_ptr );
+
+               } else if( async ) {   // Prepost one recv
+
+                  PrepostRecv();
+
+               }
+
+                  // Flush the cache using the dummy buffer
+
+               if( !cache ) flushcache(memcache, MEMSIZE/sizeof(int));
+
+               flops = 0.0;  TCalls = 1;
+
+               Sync();
+
+               t0 = myclock();
+
+               for( j = 0; j < nrepeat; j++ ) {
+
+                  bytesLeft = buflen;
+
+                     // Do CPU workload measurement if needed
+
+                  if( workload ) {
+
+                     while( ! TestForCompletion() ) {
+
+                        tcal = 1e6 * MAX( tlast / 100.0, tlat / 10.0);
+
+                        DoWork( tcal * cal_flops, &flops );
+
+                        TCalls ++;
+                     }
+                  }
+
+                  RecvData();
+                  CheckBufferData();   // At least check the first and last bytes
+                  AdvancePtrs( &s_ptr, &r_ptr, &ds_ptr, &r_ptr, buflen );
+ 
+                  if( !burst && async && (j < nrepeat-1)) // async and not last
+                     PrepostRecv();
+
+                  if( !stream ) {  // Return the data unless we are streaming
+
+                     SetupBufferData();
+                     SendData();
+                     AdvancePtrs( &ds_ptr, &dr_ptr, &s_ptr, &dr_ptr, buflen );
+                  }
+               }
+
+               t = t_raw = (myclock() - t0);
+               t /= nrepeat;
+               if( !stream && !bidir) t /= 2;
+
+               if( n != 0 && n <= 10 ) avg_latency += t / (10 * ntrials);
+
+               Reset();
+ 
+               min_time = MIN(min_time, t);
+               max_time = MAX(max_time, t);
+               avg_time += t / ntrials;
+
+               if( workload && t == min_time ) {
+                  gflops = 1e-9 * flops / t_raw;
+                  TestCalls = TCalls;
+               }
+            }
+         }
+
+              // Now gather the times to proc 0 if needed
+
+         if( stream && strcmp(module, "memcpy") ){  // Recv proc sends time to trans
+
+            times[myproc] = min_time;
+            Gather(times);
+            if( stream && myproc < nprocs / 2 ) times[myproc] = times[mypair];
+            for( i=0; i < npairs; i++) min_time = MIN(min_time, times[i]);
+
+            times[myproc] = max_time;
+            Gather(times);
+            if( stream && myproc < nprocs / 2 ) times[myproc] = times[mypair];
+            for( i=0; i < npairs; i++) max_time = MAX(max_time, times[i]);
+
+            times[myproc] = avg_time;
+            Gather(times);
+            if( stream && myproc < nprocs / 2 ) times[myproc] = times[mypair];
+            avg_time = 0.0;
+            for( i=0; i < npairs; i++) avg_time += times[i] / npairs;
+         }
+
+         Gather(failures);
+
+             // Streaming mode doesn't really calculate correct latencies.
+             // Protect against a zero time.
+
+         if(min_time == 0.0) min_time = 0.000001;
+         tlast = avg_time;
+  
+             // Print to the data file np.out and stdout
+
+         if( myproc ==  0 ) {
+
+               // Calculate the aggregate throughput
+
+            bytes = buflen * (1+bidir);
+            min_gbps = npairs * (double) bytes * 8 * 1.0e-9 / max_time;
+            avg_gbps = npairs * (double) bytes * 8 * 1.0e-9 / avg_time;
+            max_gbps = npairs * (double) bytes * 8 * 1.0e-9 / min_time;
+
+            max_bandwidth = AverageBandwidth( avg_gbps );
+
+            for( i=0, nfails=0; i<nprocs; i++ ) nfails += (int) failures[i];
+
+            if( integrityCheck ) {
+
+               fprintf(out,"%9d bytes %6u times %8d failures\n", 
+                            bytes, nrepeat, nfails);
+               fflush(out);
+               mprintf(" %8d failures\n", nfails);
+
+            } else {
+
+               if( workload ) {
+
+                  cpu_load = 100 * (cal_gflops - gflops) / cal_gflops;
+
+                  fprintf(out,"%9d %9.3lf %9.3lf %9.3lf %9.2lf %6.2lf %u\n", 
+                              bytes, avg_gbps, min_gbps, max_gbps, avg_time*1e6,
+                              cpu_load, (buflen * nrepeat) / TestCalls );
+                  fflush(out);
+
+               } else {
+
+// NOTE: Graphing max_time would emphasize any dropouts, 
+//       min_time would give best results, but avg_time is probably fairest
+//       The user can always choose which column to plot.
+
+                  fprintf(out,"%9d %9.3lf %9.3lf %9.3lf %9.2lf\n", 
+                          bytes, avg_gbps, min_gbps, max_gbps, avg_time*1e6);
+                  fflush(out);
+
+               }
+
+               mprintf("%s  in  %s", bitstring(avg_gbps), timestring(avg_time));
+               if( workload ) mprintf("  %6.2lf%% CPU load", cpu_load);
+               if( nfails != 0 ) mprintf("   %d failures", nfails);
+               mprintf("\n");
+            }
+            fflush(out);
+         }
+
+         if (cache) FreeBufs( );  // Free buffers
+
+         nq++;
+
+      } // End of the perturbation loop
+
+      if( tlast >= stoptime ) finished = 1;  // Stop testing due to time
+      len += inc;
+      if( len > end ) finished = 1;          // Stop testing due to the size
+
+   } // End of main loop
+ 
+   if( !cache ) FreeBufs( );  // Free send and receive buffers
+
+   Module_CleanUp();  // Allow each module to do cleanup
+
+   if( myproc ==  0 ) fclose(out);
+   if( n > 1 ) avg_latency /= ( ntrials * MIN( n-1, 10 ) );
+   mprintf("\nCompleted with        max bandwidth  %12s      %13s latency\n\n\n", 
+           bitstring( max_bandwidth ), timestring(avg_latency) );
+
+   return 0;   // mpirun complains if we don't return 0
+}
+
+
+// Return the current time in seconds, using a double precision number.
+// This has been changed to subtract off the 0-time to increase the
+// precision of the routine at the suggestion of Bob Felderman.
+// This should also protect against roll-over of the 64-bit cycle counter.
+
+#ifdef USE_TSC
+
+static uint64_t last_ticks = 0, nflips = 0;
+static double MHz = 0;
+
+inline double myclock()
+{
+   double mytime, get_mhz();
+   volatile uint64_t ticks, t64;
+
+   if( MHz == 0 ) {
+      MHz = get_mhz( );   // Get the CPU frequency
+//      fprintf(stderr,"Using the cycle counter with the CPU MHz = %lf\n", MHz);
+   }
+
+   __asm__ __volatile__ (
+      "rdtsc            \n"
+      : "=A" (ticks) );
+
+//      "movl %%eax, 0(%0)\n"
+//      "movl %%edx, 4(%0)\n"
+//      :
+//      : "r" (ticks)
+//      : "eax", "edx" );
+
+//fprintf(stderr,"ticks = %.0lf\n", (double) ticks);
+
+      // Has the cycle counter flipped since the last call.
+      // Note:  For 32-bit cycle counters (AMD), this will only work
+      // if this routine is called at least every 2 seconds.
+
+   if( ticks < last_ticks ) { // Assume it is a 32-bit counter that flipped
+      nflips++;
+//      fprintf(stderr,"The cycle counter has flipped %d times\n", nflips);
+   } 
+
+   t64 = ticks + (nflips << 32);
+
+   mytime = (double) t64 / (double) (MHz * 1e6) ;
+
+//fprintf(stderr,"time = %lf\n", mytime );
+
+      // Reset the starting time after the last of each pair of calls
+
+   last_ticks = ticks;
+
+   return mytime;
+} 
+
+
+// Another clock() to try, though the clock routine doesn't seem to matter
+
+inline double myclock2() {
+   static time_t t_start = 0;  // Save and subtract off each time
+
+#ifdef __MACH__ // Use clock_get_time for OSX
+   clock_serv_t cclock;
+   mach_timespec_t mts;
+   host_get_clock_service(mach_host_self(), CALENDAR_CLOCK, &cclock);
+
+   clock_get_time(cclock, &mts);
+
+   mach_port_deallocate(mach_task_self(), cclock);
+
+   if( t_start == 0 ) t_start = mts.tv_sec;
+
+   return (double) (mts.tv_sec - t_start) + mts.tv_nsec * 1.0e-9;
+#elif 1       // Use this nanosecond clock for now
+   struct timespec ts;
+   clock_gettime(CLOCK_REALTIME, &ts);
+   if( t_start == 0 ) t_start = ts.tv_sec;
+
+   return (double) (ts.tv_sec - t_start) + ts.tv_nsec * 1.0e-9;
+#else         // This is a usec clock
+   struct timeval ts;
+
+   gettimeofday(&ts, (struct timezone *)NULL);
+   if( t_start == 0 ) t_start = ts.tv_sec;
+
+   return ( (double)(ts.tv_sec - t_start) + ((double)ts.tv_usec)*1.0e-6);
+#endif
+}
+
+double get_mhz( )
+{
+   FILE *fd;
+   double mhz = -1;
+   char line[100], garb[100];
+   int i;
+
+   fd = fopen( "/proc/cpuinfo", "r");
+
+   for( i=0; i<20; i++ ) {
+
+      fscanf( fd, "%[^\n]\n", line);
+
+      if( strstr( line, "cpu MHz" ) != NULL ) {
+         sscanf( line, "%[^0-9]%lf", garb, &mhz);
+         break;
+      }
+   }
+
+   fclose( fd );
+
+   if( mhz < 0 ) {
+      fprintf(stderr, "ERROR: Could not get the CPU MHz rate from /proc/cpuinfo\n");
+      fprintf(stderr, "MHz = %lf\n", MHz);
+      exit(0);
+   }
+
+   return mhz;
+}
+#else
+
+static time_t t_start = 0.0;  // Save and subtract off each time
+
+double myclock()
+{
+   struct timespec ts;
+   clock_gettime(CLOCK_REALTIME, &ts);
+   if( t_start == 0.0 ) t_start = ts.tv_sec;
+
+   return (double) (ts.tv_sec - t_start) + ts.tv_nsec * 1.0e-9;
+}
+
+#endif
+
+   // Read the first n integers of the memmory area pointed to by ptr,
+   // to flush out the cache   
+
+int flushcache(int *ptr, int n)
+{
+   static int flag = 0;
+   int    i; 
+
+   flag = (flag + 1) % 2; 
+   if ( flag == 0) 
+       for (i = 0; i < n; i++)
+           *(ptr + i) = *(ptr + i) + 1;
+   else
+       for (i = 0; i < n; i++) 
+           *(ptr + i) = *(ptr + i) - 1; 
+    
+}
+
+int PrintUsage( char *arg)
+{
+   if( arg ) mprintf( ONRED "\n**** Unknown parameter %s ****\n\n" RESET, arg);
+   mprintf("\n NETPIPE USAGE - use mpirun for all tests requiring more than 1 process\n");
+   mprintf("  mpirun -np # [--hostfile mpihosts] [NPmpi|NPtcp|NPibverbs|NPmemcpy] [options]\n");
+   mprintf("                or\n");
+   mprintf("  [NPtheo|NPdisk] [options]\n\n");
+   mprintf("      -o filename   Set the output file name (default np.out)\n");
+   mprintf("      --bidir       Send data in both directions at the same time\n");
+   mprintf("      --nocache     Invalidate cache (data always comes from main memory)\n");
+   mprintf("      --integrity   Full message integrity check instead of performance measurement\n");
+   mprintf("      --start #     Set the lower bound for the message sizes to test\n");
+   mprintf("      --end #       Set the upper bound for the message sizes to test\n");
+   mprintf("      --offset #    Offset the send and recv buffers from page alignment\n");
+   mprintf("                    Combined with --nocache, offset from 8-byte alignment\n");
+   mprintf("      --pert #      Set the perturbation size (default +/- 3 bytes)\n");
+   mprintf("      --fac2        Test only factors of two to compare to other benchmarks\n");
+   mprintf("      --stream      Stream data in one direction only\n");
+   mprintf("      --burst       Burst pre-post all receives async before timing\n");
+   mprintf("      --repeats #   Set a constant number of repeats per trial\n");
+   mprintf("      --quick       quick run with no perturbations, 3 trials, lower time per trial\n");
+   mprintf("      --quicker     quicker run with no perturbations, 1 trial, lower time per trial\n");
+   mprintf("      --quickest    Quick and dirty test of 1 repeat per trial, 1 trial\n");
+   mprintf("      --printhostnames   Each proc will print its hostname\n");
+
+   Module_PrintUsage();  // Explain the module specific input arguments
+
+   mprintf("\n");
+   Module_CleanUp();     // Clean up and exit
+   exit(0);
+}
+
+
+static char *s_saved, *r_saved;
+
+int SavePtrs( char *s, char *r )
+{
+   s_saved = s;
+   r_saved = r;
+}
+
+int RestorePtrs( char **s, char **r )
+{
+   *s = s_saved;
+   *r = r_saved;
+}
+
+
+   // For cache just swap the first two pointers.
+   // For nocache advance the pointers through the large memory buffer if 
+   // there is room, otherwise reset to the start of the buffer.
+   // This routine advances the global pointers
+
+int AdvancePtrs( char **s_cache, char **r_cache, char **s_no, char **r_no, int size )
+{
+   void *t_ptr;
+   int n = sizeof(void *), blocksize = size;    // Round up to a factor of 8 bytes
+   if( size % n > 0 ) blocksize += n - size % n;
+
+   if( cache ) {  // For cache just swap the first two pointers
+
+      if( *s_cache != NULL ) {  // Skip when there are no RDMA buffers
+
+         dbprintf("%d Swapping %p with %p\n", myproc, *s_cache, *r_cache);
+
+         t_ptr    = *s_cache;
+         *s_cache = *r_cache;
+         *r_cache = t_ptr;
+
+         dbprintf("%d Swapped  %p with %p\n", myproc, *s_cache, *r_cache);
+      }
+
+   } else {          // For nocache advance the 3rd and 4th ptrs by size
+
+      dbprintf("%d Advancing %p %p by %d %d bytes\n", 
+         myproc, *s_no, *r_no, size, blocksize);
+
+      if( *s_no == s_ptr ) {
+
+         if( *s_no + 2*blocksize < r_buf ) {
+            *s_no += blocksize;
+         } else {
+            //fprintf(stderr,"\n%d flipping s_ptr %p to ", myproc, *s_no);
+            *s_no = s_buf + offset;
+            //fprintf(stderr,"%p\n", *s_no);
+         }
+
+      } else if( *s_no == ds_ptr && *s_no != NULL ) {
+
+         if( *s_no + 2*blocksize < dr_buf ) {
+            *s_no += blocksize;
+         } else {
+            *s_no = s_buf + offset;
+         }
+      }
+
+      if( *r_no == r_ptr ) {
+
+         if( *r_no + 2*blocksize < sr_buf + MEMSIZE ) {
+            *r_no += blocksize;
+         } else {
+            //fprintf(stderr,"\n%d flipping r_ptr %p to ", myproc, *r_no);
+            *r_no = r_buf + offset;
+            //fprintf(stderr,"%p\n", *r_no);
+         }
+
+      } else if( *r_no == dr_ptr && *r_no != NULL ) {
+
+         if( *r_no + 2*blocksize < dsr_buf + MEMSIZE ) {
+            *r_no += blocksize;
+         } else {
+            *r_no = dr_buf + offset;
+         }
+      }
+      dbprintf("%d Advanced  %p %p by %d %d bytes\n", 
+         myproc, *s_no, *r_no, size, blocksize);
+   }
+}
+
+
+int InitBufferData(int nbytes)
+{
+   memset(s_buf, -1, nbytes + offset);
+   memset(r_buf, -1, nbytes + offset);
+ 
+   r_ptr  = r_buf  + offset;
+   s_ptr  = s_buf  + offset;
+
+   dr_ptr  = dr_buf  + offset;
+   ds_ptr  = ds_buf  + offset;
+}
+
+   // Setup for an integrity test if needed otherwise set first and last bytes only
+
+int SetupBufferData()
+{
+   int i;
+   static int stag = 0;
+
+   if( disk ) return 1;
+
+   if( integrityCheck ) {       // Set each byte to 0..99
+
+      for( i = 1; i < buflen-1; i++ ) {
+         s_ptr[i] = i % 100;
+      }
+   }
+
+      // Set the first and last bytes to stag for the quick checks
+
+   stag = ++stag % 100;
+   s_ptr[0] = s_ptr[buflen-1] = stag;
+   //dbprintf("%d stag at s_ptr[0] at %p and s_ptr[%d] at %p set to %d\n", 
+      //myproc, &s_ptr[0], buflen-1, &s_ptr[buflen-1], stag);
+}
+
+   // Do a full integrity test if requested otherwise check first and last bytes
+
+int CheckBufferData()
+{
+   int i;
+   static int rtag = 0;
+
+   if( disk ) return 1;
+
+   if( integrityCheck ) {     // Do a full integrity check of the message
+
+      for( i = 1; i < buflen-1; i++ ) {
+         if( r_ptr[i] != i % 100) {
+            failures[myproc] += 1.0;
+            //dbprintf("%d failure check %d %d\n", myproc, (int) r_ptr[i], i % 100);
+         }
+         r_ptr[i] = -1;  // Clear for the next message to overwrite
+      }
+   }
+
+      // Always at least check the first and last bytes
+
+   rtag = ++rtag % 100;
+   if( r_ptr[0] != rtag || r_ptr[buflen-1] != rtag ) failures[myproc] += 1.0;
+   //dbprintf("%d rtag failure check %d %d %d\n",
+      //myproc, (int) r_ptr[0], (int) r_ptr[buflen-1], rtag);
+}
+
+
+#if defined(TCP) || defined(MPI) || defined(SHMEM)
+   int TestForCompletion( ) { Module_TestForCompletion(); }
+#else
+   int TestForCompletion( ) { }
+#endif
+
+#if defined (MPI2) || defined(TCP) || defined(DISK) || defined(IBVERBS)
+   int Reset( ) { Module_Reset(); }
+#else
+   int Reset( ) { }
+#endif
+
+   // ibverbs needs to register memory
+   // shmem needs to shmalloc shared memory
+   // disk needs to create and rm data files for cp and scp tests
+
+#if defined(IBVERBS) || defined(SHMEM) || defined(DISK)
+   char * mymalloc( int nbytes ) { return Module_malloc( nbytes ); }
+   int    myfree( char *buf )    { Module_free( buf ); }
+#else
+   char * mymalloc( int nbytes ) {
+      void *buf;
+      int err = posix_memalign( &buf, PAGESIZE, nbytes );
+      ERRCHECK( ! buf, "Could not malloc %d bytes\n", nbytes);
+      return buf;
+   }
+   int    myfree( char *buf )    { free( buf ); }
+#endif
+
+
+   // Malloc the send and receive buffers and register if needed
+   //    Use 1 buffer split in 2 so only a single registration is needed
+   //    Page align s_buf and r_buf then allow testing of offsets to aligned
+
+int MallocBufs( int size )
+{
+   int nbytes = size/2 + offset;    // Round up to an even page size
+   if( nbytes % PAGESIZE > 0 ) nbytes += (PAGESIZE - nbytes % PAGESIZE);
+
+      // mymalloc will register memory or allocate from shared pool if necessary
+
+   sr_buf = mymalloc( 2*nbytes );  // Uses posix_memalign() to page align
+   ERRCHECK( ! sr_buf, "Can't allocate %d bytes for send/recv buffers\n", nbytes);
+
+      // Set r_buf to second half and page align both buffers
+
+   s_buf = sr_buf;
+   r_buf = sr_buf + nbytes;
+   r_ptr = r_buf  + offset;   // Allow testing of offsets to page alignment
+   s_ptr = s_buf  + offset;
+
+   dbprintf("%d malloc(%d)  sr_buf = %p  s_ptr = %p  r_ptr = %p\n", 
+      myproc, 2*nbytes, sr_buf, s_ptr, r_ptr);
+
+      // Do the same for a remote buffer if present for RDMA modules
+      // Module_malloc() must have properly set dsr_buf as the remote buffer
+
+   if( dsr_buf != NULL ) {
+
+      ds_buf = dsr_buf;
+      dr_buf = dsr_buf + nbytes;
+      dr_ptr = dr_buf  + offset;   // Allow testing of offsets to page alignment
+      ds_ptr = ds_buf  + offset;
+
+      dbprintf("%d malloc(%d) dsr_buf = %p ds_ptr = %p dr_ptr = %p\n", 
+         myproc, 2*nbytes, sr_buf, s_ptr, r_ptr);
+   }
+
+   if( disk ) {
+      memset( s_buf, 111, 2*nbytes);
+   } else {
+      memset( s_buf, -1, 2*nbytes);
+   }
+}
+
+// Free the send/recv buffer and deregister memory if needed
+
+int FreeBufs( )
+{
+   myfree( sr_buf );
+}
+
+/* DoWork repeatedly does a daxpy on data that should be in cache.
+ * It should be called once to pull the data into cache before any
+ * timings are done.
+ */
+/*
+int DoWork( int requested_flops, double *flops )
+{
+   static double x[NELEMENTS], y[NELEMENTS], a = 3.1415926;
+   int i, j, repeats, nel;
+
+   if( requested_flops/2 <= NELEMENTS ) {
+      nel = requested_flops/2;
+      repeats = 1;
+   } else {
+      repeats = (requested_flops/2 + NELEMENTS - 1) / NELEMENTS;
+      nel = (requested_flops / 2) / repeats;
+   }
+
+   for( i=0; i<repeats; i++ ) {
+
+      for( j=0; j<nel; j++ ) {
+
+         x[j] = a * x[j] + y[j];
+
+   }  }
+
+   *flops += 2 * repeats * NELEMENTS;
+}
+*/
+
+   // Try a counter instead of a daxpy. This tests CPU load, but not the
+   // load on the memory bandwidth.
+
+int DoWork( int requested_flops, double *flops )
+{
+   int i, sum = 0;;
+
+   for( i=0; i<requested_flops; i++ ) {
+
+      sum ++;
+
+         // prevent compilers from optimizing the loop away
+
+      if( sum % 2 == 3 ) printf("%d", sum);
+   }
+
+   *flops += 2 * requested_flops;
+}
+
+char * bytestring( int nbytes )
+{
+   char bstring[20];
+
+   if( nbytes < 1e3 ) {
+      sprintf( bstring, GREEN  "    %3d  B" RESET, nbytes);
+   } else if( nbytes < 1e6 ) {
+      sprintf( bstring, CYAN    "%7.3lf KB" RESET, nbytes/1e3);
+   } else if( nbytes < 1e9 ) {
+      sprintf( bstring, MAGENTA "%7.3lf MB" RESET, nbytes/1e6);
+   } else if( nbytes < 1e12 ) {
+      sprintf( bstring, RED     "%7.3lf GB" RESET, nbytes/1e9);
+   } else {
+      sprintf( bstring, CYAN    "%7.3lf TB" RESET, nbytes/1e12);
+   }
+   return strdup( bstring );
+}
+
+char * bitstring( double gbps )
+{
+   char bstring[22];
+   double bps = gbps * 1e9;
+
+   if( bps < 1.0e3) {
+      sprintf( bstring, GREEN   "%7.3lf  bps" RESET, bps);
+   } else if( bps < 1.0e6) {
+      sprintf( bstring, CYAN    "%7.3lf Kbps" RESET, bps/1e3);
+   } else if( bps < 1.0e9) {
+      sprintf( bstring, MAGENTA "%7.3lf Mbps" RESET, bps/1e6);
+   } else if( bps < 1.0e12) {
+      sprintf( bstring, RED     "%7.3lf Gbps" RESET, bps/1e9);
+   } else {
+      sprintf( bstring, YELLOW  "%7.3lf Tbps" RESET, bps/1e12);
+   }
+   return strdup( bstring );
+}
+
+char * timestring( double secs )
+{
+   char bstring[23];
+
+   if( secs < 1.0e-6) {
+      sprintf( bstring, YELLOW  "%7.3lf nsecs" RESET, secs*1e9);
+   } else if( secs < 1.0e-3) {
+      sprintf( bstring, CYAN    "%7.3lf usecs" RESET, secs*1e6);
+   } else if( secs < 1.0) {
+      sprintf( bstring, GREEN   "%7.3lf msecs" RESET, secs*1e3);
+   } else {
+      sprintf( bstring, BLUE    "%7.3lf  secs" RESET, secs);
+   }
+
+   return strdup( bstring );
+}
+
+   // Calculate the average of the n highest bandwidth rates
+
+double AverageBandwidth( double rate )      // rate is in Gbps
+{
+   int i, lowest_rate_index, nrates;
+   static double *bw;
+   double lowest_rate = 1e100, avg_bw = 0.0;
+
+   if( perturbation ) nrates = 10; else nrates = 5;
+
+      // Initialize bw array first time called
+
+   if( bw == NULL ) {
+      bw = (double *) malloc( nrates * sizeof(double) );
+      for( i=0; i < nrates; i++ ) bw[i] = 0.0;
+   }
+
+      // Find the lowest member and replace with incoming rate if higher
+
+   for( i = 0; i < nrates; i++ ) {
+
+      if( bw[i] < lowest_rate ) {
+         lowest_rate = bw[i];
+         lowest_rate_index = i;
+      }
+   }
+
+   if( rate > lowest_rate ) bw[lowest_rate_index] = rate;
+
+      // Return the average bw over the nrates highest communication rates
+
+   for( i=0; i < nrates; i++ ) avg_bw += bw[i] / nrates;
+
+   return avg_bw;
+}
+

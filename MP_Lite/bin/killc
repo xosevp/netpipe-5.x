@@ -1,0 +1,29 @@
+#!/bin/sh 
+case $# in
+1)
+  ps -C $1 ho pid >.command 
+  awk '{pid[NR]=$0}
+    END {
+      all_pids=""
+      for(i=1;i<=NR;i++)
+        all_pid=sprintf("%s %s",all_pid,pid[i]) 
+      print all_pid}' .command>.comm
+  comm=`cat .comm`
+
+  if test "$comm" = "" 
+  then
+    echo "Command $1 not found"
+  else 
+    `kill $comm`
+    if test "$?" = "1"
+    then
+      echo "permission denied" 
+    else
+      echo "All $1 have been killed"
+    fi
+  fi
+  rm -f .comm .command
+;;
+*)
+  echo "Usage: killc command_name";;
+esac

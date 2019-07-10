@@ -1,0 +1,86 @@
+#!/bin/sh
+# Dave Turner - drdaveturner@gmail.com
+
+# Scropt to graph a NetPIPE output file
+# Currently set up to use Preview on a Mac (edit last lines to change)
+#
+# Default is to plot the average bandwidth
+# npplot np.out1 np.out2 ...
+#
+# Plot the latency for each message size
+# npplot latency np.out1 np.out2 ...
+#
+# Plot the average, min, and max bandwidth
+# npplot variance np.out1 ...
+
+gpfile="./.npplot.gnuplot"
+psfile="./.npplot.ps"
+
+outputs=$*
+
+echo " "
+echo "Plotting $* to ./.npplot.ps"
+echo " "
+
+line_style=0
+variance=0
+
+for ofile in $outputs
+do
+	if test $ofile == "latency"
+	then
+		opts="using 1:5"
+	elif test $ofile == "variance"
+	then
+		variance="true"
+	else
+  		line_style=`expr $line_style + 1`
+  		if test $line_style -eq 9
+  		then
+    		line_style=1
+  		fi
+		if test $variance == "true"
+		then
+  			OUTPUTS="$OUTPUTS \"$ofile\" using 1:2 ls 6,"
+  			OUTPUTS="$OUTPUTS \"$ofile\" using 1:3 ls 1,"
+  			OUTPUTS="$OUTPUTS \"$ofile\" using 1:4 ls 2,"
+		else
+  			OUTPUTS="$OUTPUTS \"$ofile\" $opts ls $line_style,"
+		fi
+	fi
+done
+
+OUTPUTS=`echo $OUTPUTS | sed 's/,$//g'`
+
+echo "set style data lines" > $gpfile
+if test "$opts" == "using 1:5"
+then
+	echo "set logscale y" >> $gpfile
+	echo "set ylabel \"Latency in usecs\"" >> $gpfile
+else
+	echo "set ylabel \"Bandwidth in Gbps\"" >> $gpfile
+fi
+echo "set logscale x" >> $gpfile
+#echo "set xrange [1:20000000]" >> $gpfile
+echo "set xlabel \"Message Size in Bytes\"" >> $gpfile
+
+echo 'set style line 1 lw 6 lt 1 lc rgb "red"' >> $gpfile
+echo 'set style line 2 lw 6 lt 1 lc rgb "green"' >> $gpfile
+echo 'set style line 3 lw 6 lt 1 lc rgb "blue"' >> $gpfile
+echo 'set style line 4 lw 6 lt 1 lc rgb "magenta"' >> $gpfile
+echo 'set style line 5 lw 6 lt 1 lc rgb "orange"' >> $gpfile
+echo 'set style line 6 lw 6 lt 1 lc rgb "black"' >> $gpfile
+echo 'set style line 7 lw 6 lt 1 lc rgb "cyan"' >> $gpfile
+echo 'set style line 8 lw 6 lt 1 lc rgb "brown"' >> $gpfile
+
+echo "set key top left" >> $gpfile
+echo "set terminal postscript color" >> $gpfile
+echo "set output \"$psfile\"" >> $gpfile
+echo "plot $OUTPUTS" >> $gpfile
+
+gnuplot < $gpfile
+
+open -a Preview $psfile
+# gv $psfile
+#ghostview $psfile
+

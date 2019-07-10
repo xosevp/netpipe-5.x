@@ -1,0 +1,61 @@
+#!/bin/bash -l
+#SBATCH --job-name=netpipe
+#SBATCH --output=netpipe.o%j
+#SBATCH --time=1:00:00
+#SBATCH --mem=4G
+#SBATCH --switches=1
+#SBATCH --nodes=2
+
+##SBATCH --constraint=elves
+##SBATCH --ntasks-per-node=16
+##SBATCH --gres=fabric:ib:1
+##SBATCH --partition=ksu-gen-reserved.q
+
+##SBATCH --constraint=moles
+##SBATCH --ntasks-per-node=20
+##SBATCH --gres=fabric:ib:40
+##SBATCH --partition=killable.q
+##SBATCH --partition=ksu-chem-mri.q
+
+##SBATCH --constraint=dwarves
+##SBATCH --ntasks-per-node=32
+##SBATCH --gres=fabric:ib:40
+##SBATCH --partition=ksu-cis-hpc.q
+
+#SBATCH --constraint=heroes
+#SBATCH --ntasks-per-node=24
+#SBATCH --gres=fabric:roce:40
+
+##SBATCH --constraint=wizards
+##SBATCH --ntasks-per-node=32
+##SBATCH --gres=fabric:opa:100
+
+#SBATCH --partition=ksu-cis-hpc.q
+
+host=`echo $SLURM_JOB_NODELIST | sed s/[^a-z0-9]/\ /g | cut -f 1 -d ' '`
+nprocs=$SLURM_NTASKS
+
+# Make an OpenMPI hostname file for 1 task per node
+openmpi_hostfile.pl $SLURM_JOB_NODELIST 1 hf.$host
+
+#rm NPmpi
+#module purge
+#module load OpenMPI/2.1.1-iccifort-2018.0.128-GCC-7.2.0-2.29.bak_20180125113159
+#module list
+#make mpi
+
+#module purge
+#module load OpenMPI/2.1.1-iccifort-2018.0.128-GCC-7.2.0-2.29
+
+echo "*******************************************************************"
+echo "Running on $SLURM_NNODES nodes $nprocs cores on nodes $SLURM_JOB_NODELIST"
+echo "*******************************************************************"
+
+opts="--printhostnames --quick --pert 3"
+#mpiopts="--mca btl_openib_if_exclude mlx4_0:1"
+#mpiopts="--mca pml cm --mca mtl psm2"
+
+mpirun $mpiopts -np 2 --hostfile hf.$host NPmpi $opts -o np.${host}.mpi
+mpirun $mpiopts -np 2 --hostfile hf.$host NPmpi $opts -o np.${host}.mpi.bi --async --bidir
+mpirun $mpiopts -np $nprocs NPmpi $opts -o np.${host}.mpi$nprocs --async --bidir
+

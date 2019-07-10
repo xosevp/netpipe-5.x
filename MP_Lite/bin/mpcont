@@ -1,0 +1,47 @@
+#! /bin/csh -f
+
+#   mpstop - send a SIGUSR1 signal to one of the processes, which an
+#            MP_Bedcheck() call can intercept to put all processes to sleep
+#            until another SIGUSR1 is sent to wake them up.
+
+set CONFIG_FILE = ".mplite.config"
+
+if ( -r "$CONFIG_FILE" ) then
+  set NPROCS = `head -1 $CONFIG_FILE`
+  set PROG = `head -2 $CONFIG_FILE | tail -1 | cut -d" " -f1`
+  set HOST1 = `head -3 $CONFIG_FILE | tail -1 | cut -d" " -f2`
+#  set HOST1_SHORT = `echo "$HOST1" | cut -d"." -f1`
+#  set HOST = `hostname`
+#  set SH = ""
+#  if( $HOST != $HOST1_SHORT ) then
+#    set SH = "rsh $HOST1"
+#  endif
+else
+  echo "ERROR - the .mplite.config file is not readable"
+  exit
+endif
+
+#echo "PROG = $PROG"
+#echo "HOST1 = $HOST1"
+
+set UNIX = `uname`
+if ("$UNIX" == "IRIX" || "$UNIX" == "IRIX64") alias psa 'ps -ef'
+if ("$UNIX" == "Paragon OSF/1" || "$UNIX" == "AIX") alias psa 'ps aux'
+
+#echo "PID = `psa | grep $PROG | grep -v grep | head -1 | sed -e 's/  / /g' | sed -e 's/  / /g' | sed -e 's/^ //g' | cut -d' ' -f2`"
+
+set PSOUT = `rsh $HOST1 "psa | grep $PROG | grep -v grep | head -1"`
+#echo "PSOUT = $PSOUT"
+if( `echo "$PSOUT" | wc -l` != "1" ) then
+  echo "mpstop could not find the remote PID number for $PROG on $HOST1"
+  exit
+endif
+
+set PID = `echo "$PSOUT" | sed -e 's/  / /g' | sed -e 's/  / /g' | sed -e 's/^ //g' | cut -d' ' -f2`
+
+echo "PID = $PID"
+
+echo "rsh $HOST1 kill -USR1 $PID"
+  rsh $HOST1 "kill -USR1 $PID"
+echo "done"
+

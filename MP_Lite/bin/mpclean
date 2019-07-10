@@ -1,0 +1,95 @@
+#!/bin/csh -f
+# Read the .mplite.config file, 'ssh killall $PROG' to each host
+
+if( `uname` == "AIX" ) then
+  echo " "
+  echo "  Sorry, killall doesn't work under AIX"
+  echo "  Call IBM and complain"
+  echo " "
+  exit
+endif
+
+set CONFIG_FILE = ".mplite.config"
+
+set B1=""
+set B0=""
+
+# use the following for xterms only
+#set B1="[1m"
+#set B0="[0m"
+
+
+if ( -r "$CONFIG_FILE" ) then
+  set NPROCS = `head -1 $CONFIG_FILE`
+  set PROG = `head -3 $CONFIG_FILE | tail -1 | cut -d" " -f1`
+
+  set USER = `ps -C $PROG ho user | tail -1` 
+
+  # If such processes do not exist, set USER to current user  
+  if ($USER == "") then
+    set USER = `whoami` 
+  endif
+
+  set NPLUS = `expr $NPROCS + 3`
+  set HOSTLIST = `head -$NPLUS $CONFIG_FILE | tail -$NPROCS | sed -e 's/^ *[0-9]* *//g' | cut -d" " -f1`
+else
+  echo "ERROR - the .mplite.config file is not readable"
+  exit
+endif
+
+set MASTER = `hostname`
+set MASTER_SHORT = `hostname | cut -f1 -d"."`
+set CWD = $PWD
+set LOCAL = "NO"
+
+foreach i ( $HOSTLIST )
+  set i_short = `echo $i | cut -f1 -d"."`
+  if ( $i_short != $MASTER_SHORT ) then
+    echo "$B1 killall $PROG on $i_short $B0"
+    ssh -n $i_short "killall -9 $PROG" &
+  else
+    set LOCAL = "yes"
+  endif
+end
+
+echo "Wait for all remote processes to die"
+wait
+
+if( $LOCAL == "yes" ) then
+  echo "$B1 killall -9 $PROG on $MASTER_SHORT $B0"
+  killall -9 $PROG
+endif
+
+# Now try killing the mprun script
+
+killall mprun
+
+echo "$B1 Everything has been killed $B0"
+
+# cleanup shared memory segments owned by $user
+# -------------------------------------------------
+ipcs -m | sed -n '/^$/d; 4,$p' | awk '/'$USER'/{print substr($0, 12,10)}' > .shm
+set count=`cat .shm | wc -l`
+if ($count == 0) then
+  rm -f .shm
+  echo "No shared memory allocated for $USER"
+else
+  sed -e 's/^/ipcrm shm /' .shm >.shmrm
+  chmod +x .shmrm
+  .shmrm
+  rm -f .shm .shmrm
+endif
+
+# cleanup semaphores owned by $user
+# ------------------------------------
+#ipcs -s | sed -n '/^$/d; 4,$p' | awk '/'$USER'/{print substr($0, 12,10)}' > .sem
+#set count = `cat .sem | wc -l`
+#if ($count == 0) then
+#  rm -f .sem
+#  echo "No semaphore allocated for $USER"
+#else
+#  sed -e 's/^/ipcrm sem /' .sem >.semrm
+#  chmod +x .semrm
+#  .semrm
+#  rm -f .sem .semrm
+#endif 

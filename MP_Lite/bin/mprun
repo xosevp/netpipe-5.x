@@ -1,0 +1,535 @@
+#!/bin/csh -f
+
+# All you need to do is choose the appropriate shell command (ssh/rsh)
+
+set SH="ssh -a -x"
+#set SH="qrsh -inherit"
+#set SH=rsh
+
+#set B1=""
+#set B0=""
+
+# use the following for xterms only
+set B1="[1m"
+set B0="[0m"
+
+set MASTER = `hostname`
+set MASTER_SHORT = `hostname | cut -f1 -d"."`
+set CWD = `pwd`
+
+# Type 'mprun -help' or 'mprun -usage' for more documentation
+
+# In general, mprun gets info from .mplite.config that is not 
+#   specified in the command line.  Line one contains the number of 
+#   processes to be run, line two contains the executible and argument list,
+#   and the remaining lines contain the node numbers and hostname to run on.
+#   If no hostnames are specified, MP_Lite will get the hostnames at run-time.
+#
+# -mpi  --> Use mpirun with the machinelist
+# -mpi2 --> Use mpirun with -arch LINUX where the machinelist must be in the
+#           mpich/util/machine.LINUX file.
+# -pbs  --> specify the CWD and get the host list from $PBS_NODEFILE
+#  -sp  --> run using poe on the IBM SP
+#
+#   -c  --> use an alternate config file
+#   -np --> specify the number of processes to be run
+#   -h  --> with -np #, specify host list and build .mplite.config from scratch
+#   -H  --> specify a hostfile with 1 host per line
+#   -PE --> specify an SGE PE_HOSTFILE
+#   -a  --> with -np #, specify an anchor node with a number in it that will 
+#           act as a pattern to be incremented when building .mplite.config.
+#   -s  --> SMP mode, put nprocs copies of hostname into .mplite.config
+#   -suffix --> add the following suffix to each host
+#               (.beocat-ib for IP over IB)
+#
+# -nics --> with -nics #, specify the number of interfaces (NICs) per machine.
+
+
+# Examples:
+# 
+#  mprun (uses existing nprocs, executible, arguments, and hostlist from .mplite.config)
+#  mprun -c config_file ... ( uses same from alternate config file )
+#  mprun -np 4 -h host0 host1 host2 host3 program [args]
+#  mprun -H $PE_HOSTFILE program [args]  (run on the nodes in the hostfile)
+#  mprun -np 4 -a node10 program [args]  (run on node10, node11, node12, node13)
+#  mprun -np 4 -s hydra program [args]  (run 4 processes on Hydra)
+
+#       Run using multiple NICs per machine
+#  mprun -np 2 -nics 2 -h node10.fe1 node10.fe2 node11.fe1 node11.fe2 program
+#  mprun -np 2 -nics 2 -a node10.fe1 program (same as above)
+
+#  mprun -pbs $CWD -np N program    --> gets the host list from $PBS_NODEFILE
+#  mprun -sp -np N program args     --> gets host names from .node.hostname.pid files
+
+
+if ( "$1" == "--help" || "$1" == "--usage" ) then
+  echo "mprun [-np N] program [args]"
+  echo "      ==> Run program on the first N machines in .mplite.config"
+  echo "      ==> T3E & Paragon: run program on N processors"
+  echo ""
+  echo "mprun -c config_file [-np N] program [args]"
+  echo "      ==> Copy config_file to .mplite.config then run program"
+  echo ""
+  echo "mprun -np N -h host1 [host2 ... hostN] program [args]"
+  echo "      ==> Generate .mplite.config using N and host1 .. hostN then run program"
+  echo ""
+  echo "mprun -H hostfile program [args]"
+  echo "      ==> Generate .mplite.config using the hosts in hostfile then run program"
+  echo ""
+  echo 'mprun [-suffix .beocat-ib] -PE $PE_HOSTFILE program [args]'
+  echo "      ==> Generate .mplite.config using an SGE PE_HOSTFILE with an"
+  echo "          optional suffix to choose IP over IB for example"
+  echo ""
+  echo "mprun -np N -a anchor#suffix program [args]"
+  echo "      ==> '-np 4 -a node32.ge' == '-np 4 -h node32.ge node33.ge ...'"
+  echo ""
+  echo "mprun -np N -s smp_host program [args]"
+  echo "      ==> '-np 4 -s hydra' == '-np 4 -h hydra hydra hydra hydra'"
+  echo ""
+  echo "For more examples, look at the beginning of the mprun script file."
+  exit
+endif
+
+onintr killsh
+
+set CONFIG_FILE = ".mplite.config"
+set NPROCS = "-1"
+set PROG_AND_ARGS = ""
+
+#######################################
+# Process all the mprun arguments first
+#######################################
+
+# When using ssh, mprun launches local processes then launches
+# one mprun -local_launch per remote host to launches it's own local processes.
+
+if( "$1" == "-local_launch" ) then
+  shift
+else
+  set MAIN_HOST="true"
+  rm -f .node* .mplite.status .changeport* >& /dev/null
+endif
+
+# Use the hosts in $PBS_NODEFILE if -pbs is the first argument
+
+if( "$1" == "-pbs" ) then
+  set CWD="$2"
+  cd $CWD
+  shift
+  shift
+  set PBSRUN="true"
+endif
+  
+
+# Use mpirun if -mpi is specified as argument #1
+
+if( "$1" == "-mpi" ) then
+  shift
+  set MPIRUN="yes"
+endif
+
+if( "$1" == "-mpi2" ) then
+  shift
+  set MPIRUNOLD="yes"
+endif
+  
+# Use poe for the IBM SP or IBM cluster if -poe or -sp is specified
+
+if( "$1" == "-sp" || "$1" == "-poe" ) then
+  shift
+  if( "$1" == "-np" || "$1" == "-n" || "$1" == "-procs" ) then
+    shift
+    set NPROCS = $1
+    shift
+    set PROG_AND_ARGS="$*"
+  else
+    echo "USAGE: mprun -sp -np # prog [args]"
+  endif
+
+#    Mark nprocs as negative signals MP_Init() to get hostnames from the
+#    .node.hostname.pid log files.
+
+  set NP = `expr 0 - $NPROCS`
+  echo $NP > $CONFIG_FILE
+  echo 1 >> $CONFIG_FILE
+  echo $PROG_AND_ARGS >> $CONFIG_FILE
+    
+  if( "$PROG_AND_ARGS" == "" ) then
+    echo "USAGE: mprun -sp -np # prog [args]"
+  else
+    echo "poe $PROG_AND_ARGS -procs $NPROCS"
+    poe $PROG_AND_ARGS -procs $NPROCS
+  endif
+  exit
+endif
+
+# Option to add a suffix to each host name
+
+set SUFFIX=""
+if ( "$1" == "-suffix" ) then
+  set SUFFIX="$2"
+  shift
+  shift
+endif
+
+# Use an alternate config file (just copy it to .mplite.config)
+
+if ( "$1" == "-c" ) then
+  if ( -r "$2" ) then
+    cp $2 $CONFIG_FILE
+  else
+    echo "Config file $2 is not readable"
+    exit
+  endif
+  shift
+  shift
+endif
+
+
+# Read in the .mplite.config file to start with, if there is one
+
+if ( -r "$CONFIG_FILE" ) then
+  set NPROCS = `head -1 $CONFIG_FILE`
+  set NICS = `head -2 $CONFIG_FILE | tail -1`
+  set PROG_AND_ARGS = `head -3 $CONFIG_FILE | tail -1`
+  set PROG = `echo $PROG_AND_ARGS | cut -d" " -f1`
+  set LINES = `cat .mplite.config | wc -l`
+  set LINES = `expr $LINES - 3`
+  if ( $?MAIN_HOST ) then
+    tail -$LINES $CONFIG_FILE > .mplite.tmp
+  endif
+else
+  set NPROCS = "-1"
+  set NICS = "1"
+endif
+
+# Use an SGE PE_HOSTFILE  -PE $PE_HOSTFILE
+
+if ( "$1" == "-PE" || "$1" == "-sge" ) then
+#  set SH='qrsh -inherit'
+  rm -f .mplite.tmp
+  touch .mplite.tmp
+  shift
+  set HOSTFILE = "$1"
+  shift
+  set NPROCS = 0
+  foreach LINE ( `cat $HOSTFILE | sed -e "s/ /./g"` )
+    set HOST=`echo "$LINE" | cut -d"." -f1`
+    set NHOSTS=`echo "$LINE" | cut -d"." -f3`
+    while( $NHOSTS > 0 )
+      echo "$NPROCS $HOST$SUFFIX" >> .mplite.tmp
+      set NPROCS = `expr $NPROCS + 1`
+      set NHOSTS = `expr $NHOSTS - 1`
+    end
+  end
+endif
+
+# Use a hostfile if one is given with -H
+
+if ( "$1" == "-H" ) then
+  rm -f .mplite.tmp
+  touch .mplite.tmp
+  shift
+  set HOSTFILE = "$1"
+  shift
+  set NPROCS = 0
+  foreach host ( `cat $HOSTFILE` )
+    echo "$NPROCS $host$SUFFIX" >> .mplite.tmp
+    set NPROCS = `expr $NPROCS + 1`
+  end
+endif
+
+
+# Over-ride the .mplite.config entries with the command line parameters
+
+if ( "$1" == "-np" || "$1" == "-n" ) then
+  set NPROCS = "$2"
+  shift
+  shift
+  set NICS = "1"
+endif
+
+if ( "$1" == "-nics" || "$1" == "-ni" ) then
+  set NICS = "$2"
+  shift
+  shift
+endif
+
+# For PBS runs, read the $PBS_NODEFILE to get nprocs hosts
+
+if( "$?PBSRUN" ) then
+  rm -f .mplite.tmp
+  touch .mplite.tmp
+  set NODE=0
+  while( $NODE != $NPROCS )
+    set NPLUS=`expr $NODE + 1`
+    set host=`head -$NPLUS $PBS_NODEFILE | tail -1`
+    echo "$NODE  $host$SUFFIX" >> .mplite.tmp
+    set NODE=$NPLUS
+  end
+endif
+
+# If -h specified, create .mplite.config from -np, -nics, and -h arguments
+
+if ( "$1" == "-h" && $NPROCS > 0 ) then
+  shift
+  set i = 0
+  rm -f .mplite.tmp
+  touch .mplite.tmp
+  while ( $i < $NPROCS )
+    if ( "$NICS" == "1" ) then
+      echo "$i $1$SUFFIX" >> .mplite.tmp
+      shift
+    else if ( "$NICS" == "2" ) then
+      echo "$i $1 $2" >> .mplite.tmp
+      shift
+      shift
+    else if ( "$NICS" == "3" ) then
+      echo "$i $1 $2 $3" >> .mplite.tmp
+      shift
+      shift
+      shift
+    else if ( "$NICS" == "4" ) then
+      echo "$i $1 $2 $3 $4" >> .mplite.tmp
+      shift
+      shift
+      shift
+      shift
+    else
+      echo "for more than 4 NICs/machine, edit .mplite.config manually."
+      exit
+    endif
+    set i = `expr $i + 1`
+  end
+endif
+
+# If -a (anchor) is specified, create .mplite.config from -np, -nics and -a args
+#  (-a anchor##suf&& starts machine numbering with ## and NIC numbering with &&)
+
+if ( "$1" == "-a" && $NPROCS > 0 ) then
+  rm -f .mplite.tmp
+  shift
+#     apc10.ge1 --> TEMPLATE = apc@.ge#   @ == proc number   # == NIC number
+  if ( "$NICS" == "1" ) then
+    set TEMPLATE = `echo $1 | sed -e 's/[0-9]\{1,\}/@/'`
+  else
+    set TEMPLATE = `echo $1 | sed -e 's/[0-9]\{1,\}/#/g' | sed -e 's/#/@/'`
+  endif
+  set PREFIX = `echo $TEMPLATE | cut -d"@" -f1`
+  set MIDDLE = `echo $TEMPLATE | cut -d"@" -f2 | cut -d"#" -f1`
+  set SUFFIX = `echo $TEMPLATE | cut -d"#" -f2`
+  if ( "$NICS" == "1" ) then
+    set SUFFIX = `echo $TEMPLATE | cut -d"@" -f2`
+  endif
+
+#echo "TEMPLATE = $TEMPLATE"
+#echo "PREFIX = $PREFIX"
+#echo "MIDDLE = $MIDDLE"
+#echo "SUFFIX = $SUFFIX"
+    
+  set NP_ANCHOR = `echo $1 | sed -e 's/[a-zA-Z._-]\{1,\}/ /g' | cut -d" " -f2`
+  set NICS_ANCHOR = `echo $1 | sed -e 's/[a-zA-Z._-]\{1,\}/ /g' | cut -d" " -f3`
+  set i = 0
+  while ( $i < $NPROCS )
+    set j = 0
+    if ( "$NICS" > 1 ) then
+      set NODENAME1 = $PREFIX$NP_ANCHOR$MIDDLE`expr $NICS_ANCHOR + 0`$SUFFIX
+      set NODENAME2 = $PREFIX$NP_ANCHOR$MIDDLE`expr $NICS_ANCHOR + 1`$SUFFIX
+      set NODENAME3 = $PREFIX$NP_ANCHOR$MIDDLE`expr $NICS_ANCHOR + 2`$SUFFIX
+      set NODENAME4 = $PREFIX$NP_ANCHOR$MIDDLE`expr $NICS_ANCHOR + 3`$SUFFIX
+    endif
+    if ( "$NICS" == 1 ) then
+      set NODENAME = $PREFIX$NP_ANCHOR$SUFFIX
+      echo "$i $NODENAME" >> .mplite.tmp
+    else if ( "$NICS" == 2 ) then
+      echo "$i $NODENAME1 $NODENAME2" >> .mplite.tmp
+    else if ( "$NICS" == 3 ) then
+      echo "$i $NODENAME1 $NODENAME2 $NODENAME3" >> .mplite.tmp
+    else if ( "$NICS" == 4 ) then
+      echo "$i $NODENAME1 $NODENAME2 $NODENAME3 $NODENAME4" >> .mplite.tmp
+    else
+      echo "for more than 4 NICs/machine, edit .mplite.config manually."
+      exit
+    endif
+    set i = `expr $i + 1`
+    set NP_ANCHOR = `expr $NP_ANCHOR + 1`
+  end
+  shift
+endif
+
+# SMP mode: '-s hostname' --> put $NPROCS copies of hostname in .mplite.config
+
+set IS_SMP = "0"
+if ( ( "$1" == "-s" || "$1" == "-smp" ) && $NPROCS > 0 ) then
+  set IS_SMP = "1"
+  set NICS = "1"
+  rm -f .mplite.tmp
+  shift
+  set i = 0
+  while ( $i < $NPROCS )
+    echo "$i $1" >> .mplite.tmp
+    set i = `expr $i + 1`
+  end
+  shift
+endif
+
+# Now only the executible and args should be left, at most.
+
+if ( "$*" != "" ) then
+  set PROG_AND_ARGS = "$*"
+  set PROG = `echo $PROG_AND_ARGS | cut -d" " -f1`
+endif
+
+# If main host write the new .mplite.config file out
+
+if ( $?MAIN_HOST ) then
+  echo $NPROCS > $CONFIG_FILE
+  echo $NICS >> $CONFIG_FILE
+  echo $PROG_AND_ARGS >> $CONFIG_FILE
+  cat .mplite.tmp >> $CONFIG_FILE
+  rm -f .mplite.tmp
+endif
+
+
+##############################################################
+# Now read the rest of the newly completed .mplite.config file
+##############################################################
+
+set NPLUS = `expr $NPROCS + 3`
+set HOSTLIST = `head -$NPLUS $CONFIG_FILE | tail -$NPROCS | sed -e 's/^ *[0-9]* *//g' | cut -d" " -f1`
+
+# Are all procs on the same SMP host???
+
+set IS_SMP=1
+set SMPNAME=""
+
+foreach mach ( $HOSTLIST )
+  if( "$SMPNAME" == "" ) then
+    set SMPNAME=$mach
+  else if( $mach != $SMPNAME ) then
+    set IS_SMP=0
+  endif
+end
+
+if( $IS_SMP == "1" && -x shm_cleanup ) then
+  echo "Running shm_cleanup"
+  if( $SMPNAME == $MASTER ) then
+    shm_cleanup
+  else
+    $SH $SMPNAME shm_cleanup
+  endif
+endif
+
+if( "$NPROCS" < "1" ) then
+  echo "ERROR - the number of processors was never specified"
+  exit
+else if( "$PROG_AND_ARGS" == "" ) then
+  echo "ERROR - the name of the executible was never specified"
+  exit
+else if( "$HOSTLIST" == "" ) then
+  echo "ERROR - the list of hosts is incomplete"
+  exit
+endif
+
+
+# Run using mpirun if -mpi was specified as argument #1
+
+if( $?MPIRUN ) then
+  rm -f machlist
+  foreach host ($HOSTLIST)
+    echo $host >> machlist
+  end
+  mpirun -nolocal -machinefile machlist $PROG_AND_ARGS
+  exit
+endif
+
+if( $?MPIRUNOLD ) then
+  echo "mpirun -arch LINUX -np $NPROCS $PROG_AND_ARGS"
+  mpirun -arch LINUX -np $NPROCS $PROG_AND_ARGS
+  exit
+endif
+
+
+# If $CWD has not been set by -pbs, get it now
+
+if( $?PBSRUN ) then
+  set CWD = $cwd
+# pwd seems to give the absolute path, which may be different on
+# systems with different mount points but common logical pointers.
+# Try the line above since $cwd seems to use the logical path.
+#  set CWD = `pwd`
+endif
+
+  
+# Launch local procs, and rsh/ssh mprun to launch remote processes.
+# Use a lock file when launching SMP processes to set each process's rank
+
+set REMOTE_NODES = ""
+
+echo "Hostlist = $HOSTLIST\n"
+
+foreach mach ( $HOSTLIST )
+
+# Intel Phi mic0/1 needs ssh mic0/1 while hostname will be elf79-mic0/1
+
+  if ( $?MAIN_HOST ) then
+    if( `echo $mach | grep -c mic0` == "1" ) then
+      set mach="mic0"
+    endif
+    if( `echo $mach | grep -c mic1` == "1" ) then
+      set mach="mic1"
+    endif
+  endif
+
+# Get the short name for each machine
+
+  set is_ip = `echo $mach | sed -e 's/[0-9\.]//g' | wc -c`
+  if( $is_ip == 1 ) then
+    set mach_short = $mach
+  else
+    set mach_short = `echo $mach | cut -f1 -d"."`
+  endif
+
+# Launch the local processes
+
+  if ( $mach_short == $MASTER_SHORT ) then
+    $PROG_AND_ARGS &
+    echo "$B1 starting $PROG on $mach $B0"
+  else
+
+# If main host, ssh 1 remote mprun per node to launch remote processes
+
+    if ( $?MAIN_HOST && `echo $REMOTE_NODES | grep -c "|"$mach"|"` == 0 ) then
+      echo "Launching mprun -local_launch on host $mach"
+      $SH $mach_short "(cd $CWD; mprun -local_launch)" &
+      set REMOTE_NODES="$REMOTE_NODES|$mach|"
+    endif
+
+  endif
+end
+
+# Each mprun will wait for all processes to complete
+
+wait
+exit
+
+# Kill remote processes on any interuption
+
+killsh:
+  echo "Killing all remote processes"
+  set REMOTE_NODES="|`hostname`|"
+  foreach mach ( $HOSTLIST )
+    set mach_short = `echo $mach | cut -f1 -d"."`
+    if ( $mach_short != $MASTER_SHORT ) then
+      if( `echo $REMOTE_NODES | grep -c "|"$mach"|"` == 0 ) then
+# Find a better way to kill off the remote process sometime!!!
+        $SH $mach killall $PROG
+        $SH $mach killall mprun
+        set REMOTE_NODES="$REMOTE_NODES|$mach|"
+      endif
+    endif
+  end
+  echo "Killing local processes"
+  killall $PROG
+  exit
+

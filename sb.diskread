@@ -1,0 +1,32 @@
+#!/bin/bash -l
+#SBATCH --job-name=netpipe
+#SBATCH --output=netpipe.o%j
+#SBATCH --time=25:00:00
+#SBATCH --mem=100G
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=24
+#SBATCH --nodelist=hero31
+#SBATCH --tmp=100G
+
+host=`echo $SLURM_JOB_NODELIST | sed s/[^a-z]/\ /g | cut -f 1 -d ' '`
+nprocs=$SLURM_NTASKS
+
+# Make an OpenMPI hostname file for 1 task per node
+openmpi_hostfile.pl $SLURM_JOB_NODELIST 1 hf.$host
+
+echo "*******************************************************************"
+echo "Running on $SLURM_NNODES nodes $nprocs cores on nodes $SLURM_JOB_NODELIST"
+echo "*******************************************************************"
+
+rw="${host}.read.o_sync"
+opts="--read --binary --start 100000 --end 1000000000"
+
+mpirun -np $nprocs NPdisk $opts --datafile ./npdisk.binary -o np.${rw}.binary.homes.mpi24
+
+mpirun -np $nprocs NPdisk $opts --datafile /bulk/daveturner/npdisk.binary -o np.${rw}.binary.bulk.mpi24
+
+mpirun -np $nprocs NPdisk $opts --datafile /scratch/daveturner/npdisk.binary -o np.${rw}.binary.scratch.mpi24
+
+
+
+

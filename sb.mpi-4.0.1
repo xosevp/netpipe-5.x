@@ -1,0 +1,34 @@
+#!/bin/bash -l
+#SBATCH --job-name=netpipe
+#SBATCH --output=netpipe.o%j
+#SBATCH --time=1:00:00
+#SBATCH --mem=4G
+#SBATCH --switches=1
+#SBATCH --nodes=2
+
+#SBATCH --constraint=moles
+#SBATCH --ntasks-per-node=20
+##SBATCH --nodelist=mole065,mole066
+
+host=`echo $SLURM_JOB_NODELIST | sed s/[^a-z0-9]/\ /g | cut -f 1 -d ' '`
+nprocs=$SLURM_NTASKS
+
+# Make an OpenMPI hostname file for 1 task per node
+openmpi_hostfile.pl $SLURM_JOB_NODELIST 1 hf.$host
+
+# Compile NPmpi using the oepnmpi-4.0.1 compiler
+module purge
+mpipath=/homes/daveturner/libs/openmpi-4.0.1-ucx/bin
+$mpipath/mpicc -g -O3 -Wall -lrt -DMPI ./src/netpipe.c ./src/mpi.c -o NPmpi-4.0.1 -I./src
+
+echo "*******************************************************************"
+echo "Running on $SLURM_NNODES nodes $nprocs cores on nodes $SLURM_JOB_NODELIST"
+echo "*******************************************************************"
+
+opts="--printhostnames --quick --pert 3"
+#mpiopts="--mca btl tcp,self"
+
+$mpipath/mpirun $mpiopts -np 2 --hostfile hf.$host NPmpi-4.0.1 $opts -o np.${host}.mpi-4.0.1
+$mpipath/mpirun $mpiopts -np 2 --hostfile hf.$host NPmpi-4.0.1 $opts -o np.${host}.mpi-4.0.1.bi --async --bidir
+$mpipath/mpirun $mpiopts -np $nprocs NPmpi-4.0.1 $opts -o np.${host}.mpi-4.0.1-$nprocs --async --bidir
+

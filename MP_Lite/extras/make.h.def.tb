@@ -1,0 +1,4 @@
+CC = cc
+F77 = f77
+FLAGS = -O
+all: tcp

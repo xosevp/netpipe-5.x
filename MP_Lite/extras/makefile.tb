@@ -1,0 +1,247 @@
+#############################################################################
+#
+#            Makefile for Ames Lab MP_Lite message passing library
+#            Dr Dave Turner - October+ of 1997 - turner@ameslab.gov
+#
+#############################################################################
+SHELL=/bin/sh
+
+# Defaults
+
+CC = cc
+F77 = f77
+LD = ld
+FLAGS = -0  
+LDFLAGS =
+NPROC=8
+DEFS=
+OBJS = mpcore.o f77_wrappers.o io.o timer.o memory.o
+PTHREAD_OBJECTS = pthread.o join.o manager.o specific.o wrapsyscall.o cancel.o condvar.o
+
+# if you have no f77 compiler, switch the # on the next two lines
+OBJECTS = ${OBJS} timer_f.o
+#OBJECTS = ${OBJS} 
+
+#    MPICH has no standard place , so define it here for each environment
+
+MPI_HOME=/usr/local/mpich
+MPI_LIB = $(MPI_HOME)/lib/libmpich.a
+#MPI_LIB = $(MPI_HOME)/build/LINUX/ch_p4/lib
+ 
+
+#    Load flag for the Paragon
+#LDFLAGS = -nx
+
+include make.h
+# make.h defaults listed below. These are altered by make at the base level.
+# CC = cc
+# F77 = f77
+# FLAGS = -0
+# MPI_HOME = /usr/local/mpich
+# MPI_LIB = /ur/local/mpich/lib/libmpich.a
+#
+# all: tcp
+# The compilers and flags
+
+
+# General rules for making mplite
+
+libmplite.a: tcp.o shm.o mpi_wrappers.o $(OBJECTS) bin/shm_cleanup
+	ar -cr libmplite.a tcp.o shm.o mpi_wrappers.o \
+          $(OBJECTS)
+	@ bin/ifsun
+	ar -ts libmplite.a > /dev/null
+
+
+.c.o:
+	$(CC) -c $(FLAGS) $(DEFS) $*.c $(LIBS)
+
+.f.o:
+	$(F77) -c $(FLAGS) $*.f
+
+
+# Specific options for the internal controller
+
+tcp sig sigio async: 
+	make "DEFS=$(DEFS) -DTCP" do_tcp
+ 
+  do_tcp: tcp.o shm.o mpi_wrappers.o utils.o $(OBJECTS) bin/shm_cleanup make.h
+	ar -cr libmplite.a tcp.o shm.o mpi_wrappers.o utils.o \
+       $(OBJECTS)
+	@ bin/ifsun
+#	ar -ts libmplite.a > /dev/null
+
+sync tcp_sync:
+	make "DEFS=$(DEFS) -DNO_SIGNALS" tcp
+
+mvia m-via M-VIA:
+	make clean
+	@ echo
+	make "FLAGS=$(FLAGS) -DVIA_FILE -D_REENTRANT" do_via
+	@ echo
+	@ echo "You must link your application using -lvipl and -lpthreads"
+	@ echo
+
+giganet gn Giganet:
+	make clean
+	@ echo
+	make "FLAGS=$(FLAGS) -DVIA_FILE -D_REENTRANT -DGIGANET" do_via
+	@ echo
+	@ echo "You must link your application using -lgnivipl and -lpthreads"
+	@ echo
+
+do_via: $(OBJECTS) shm.o mpi_wrappers.o via.o
+	ar -cr libmplite.a via.o shm.o mpi_wrappers.o $(OBJECTS)
+
+
+pthreads pthread thread threads:
+	@ echo "The pThreads version is not ready for prime time yet!"
+	ar -x /usr/lib/libpthread.a $(PTHREAD_OBJECTS)
+	make "DEFS=$(DEFS) -DUSE_PTHREADS" "OBJECTS=$(OBJECTS) $(PTHREAD_OBJECTS)" tcp
+	rm $(PTHREAD_OBJECTS)
+
+t3e T3E:
+	@ echo "        Making MP_Lite for SHMEM on the Cray T3E"
+	make "FLAGS=-O2" "F77=f90 -F -dp" "DEFS=$(DEFS)" do_shmem
+
+shmem:
+	@ echo "        Making MP_Lite for SHMEM on SGI systems"
+	make "FLAGS=-O2" "F77=f90" "DEFS=$(DEFS)" do_shmem
+
+ do_shmem: shmem.o $(OBJECTS) mpi_wrappers.o
+	ar -cr libmplite.a shmem.o $(OBJECTS) mpi_wrappers.o
+
+scalar: scalar.o $(OBJECTS) mpi_wrappers.o
+	ar -cr libmplite.a scalar.o $(OBJECTS) mpi_wrappers.o
+
+
+bin/shm_cleanup: shm_cleanup.o
+	$(CC) -o bin/shm_cleanup $(FLAGS) shm_cleanup.o
+
+trace:
+	make "DEFS=-DTRACE"
+
+debug1:
+	rm -f timer.o mpcore.o io.o
+	make "DEFS=-DDEBUG1"
+
+debug2:
+	rm -f timer.o mpcore.o io.o
+	make "DEFS=-DDEBUG2" "FLAGS=-g"
+
+debug3:
+	rm -f timer.o mpcore.o io.o
+	make "DEFS=-DDEBUG3" "FLAGS=-g"
+
+mpi:
+	@ bin/ifparagon
+	@ echo "************************************************************"
+	@ echo "*** If this fails, you probably need to edit the makefile to"
+	@ echo "*** specify the proper include and library paths."
+	@ echo "*************************************************************"
+	make "DEFS=$(DEFS) -DMPI" do_mpi
+
+ do_mpi: $(OBJECTS)
+	mpicc  $(FLAGS) $(DEFS) -c mpi_c.c
+	mpif77  $(FLAGS) -c mpi_f.f
+	ar -cr libmplite.a mpi_c.o mpi_f.o $(OBJECTS)
+
+#	ld -r -o mpi.o mpi_c.o mpi_f.o
+#	ar -cr libmplite.a mpi.o $(OBJECTS)
+
+sp_mpi: $(OBJECTS)
+	mpcc  $(FLAGS) $(DEFS) -c mpi_c.c
+	mpxlf  $(FLAGS) -c mpi_f.f
+	ld  -r -o mpi.o mpi_c.o mpi_f.o -L/usr/lpp/ppe.poe/lib/ -lmpi
+	ar -cr libmplite.a mpi.o $(OBJECTS)
+
+
+
+# Intel Paragon - MP_Lite running on top of MPI
+
+paragon:
+	make "DEFS=$(DEFS) -DMPI" "FLAGS=$(FLAGS)" paragon_f
+	@ echo ""
+	make "DEFS=$(DEFS) -DMPI" "FLAGS=$(FLAGS)" paragon_c
+	@ echo ""
+	@ echo "*******************************************************************"
+	@ echo "*** NOTE: Use libmplite.a for f77 codes, libmplite_c.a for C codes."
+	@ echo "***       You still need to use -nx when you link your code."
+	@ echo "***       Do not use MP_Lite on the Paragon if you are using the"
+	@ echo "***       MPI syntax, just directly use MPI.
+	@ echo "*******************************************************************"
+
+paragon_c: $(OBJECTS) mpi_c.o
+	$(CC) $(FLAGS) -I/usr/include -c mpi_c.c
+	$(LD) -r -o mpi.o mpi_c.o -L/usr/lib -lmpi -lnx
+	ar -cr libmplite_c.a mpi.o $(OBJECTS)
+
+paragon_f: $(OBJECTS) 
+	$(F77) $(FLAGS) -I/usr/include -c mpi_f.f
+	$(CC) $(FLAGS) -I/usr/include -c mpi_c.c
+	$(LD) -r -o mpi.o mpi_c.o mpi_f.o -L/usr/lib -lmpi -lnx
+	ar -cr libmplite.a mpi.o $(OBJECTS)
+
+
+# Cray doesn't allow use of ld, and doesn't need -lmpi specified
+
+mpi_cray mpi_t3e t3e_mpi cray_mpi:
+	make "DEFS=$(DEFS) -DMPI" "FLAGS= " "F77=$(F77)" do_t3e_mpi
+
+ do_t3e_mpi: mpicc.o mpicf.o $(OBJECTS)
+	ar -cr libmplite.a mpicc.o mpicf.o $(OBJECTS)
+
+mpicc.o: mpi_c.c
+	$(CC) $(FLAGS) -c mpi_c.c
+	mv mpi_c.o mpicc.o
+
+mpicf.o: mpi_f.f
+	$(F77) $(FLAGS) -c mpi_f.f
+	mv mpi_f.o mpicf.o
+
+# Set the compilers for specific systems, then make using the default setup
+
+compaq:
+	make "CC=ccc" "F77=fort"
+
+gnu:
+	make "CC=gcc" "F77=g77"
+
+aix ibm:
+	make "CC=xlc" "F77=xlf"
+
+pg pgi:
+	make "CC=pgcc" "F77=pgf77"
+
+
+pong: pong.o libmplite.a
+	$(CC) $(FLAGS) -o pong pong.o -L. -lmplite
+
+pong-shmem: pong.o
+	$(CC) $(FLAGS) -o pong pong.o -L. -lmplite -lsma
+
+pong-mvia mvia-pong: pong.o
+	$(CC) $(FLAGS) -o pong pong.o -L. -lmplite -lvipl -lpthread
+
+pong-gn gn-pong: pong.o
+	$(CC) $(FLAGS) -o pong pong.o -L. -lmplite -lgnivipl -lpthread
+
+pong-paragon paragon-pong: pong.o libmplite_c.a
+	$(CC) -nx $(FLAGS) -o pong pong.o -L. -lmplite_c
+
+pong-mpi mpi-pong: pong.o libmplite.a
+	mpicc $(FLAGS) -o pong pong.o -L. -lmplite
+
+pong-sun sun-pong: pong.o libmplite.a
+	$(CC) $(FLAGS) -o pong pong.o -L. -lmplite -lsocket -lnsl
+
+pong-f f-pong: pong.f
+	$(F77) $(FLAGS) -o pong_f pong.f -L. -lmplite
+
+shmtest: shmtest.o libmplite.a
+	$(F77) $(FLAGS) -o shmtest shmtest.o -L. -lmplite
+
+
+clean clena:
+	rm -f *.o libmplite*.a bin/shm_cleanup pong
+

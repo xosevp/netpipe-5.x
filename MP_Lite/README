@@ -1,0 +1,238 @@
+     MP_Lite message passing library - Dave Turner - Ames Lab 1998++
+
+*** Note the date above:  This is very old software so don't expect much ***
+*** Note the date above:  This is very old software so don't expect much ***
+*** Note the date above:  This is very old software so don't expect much ***
+
+Additional documentation is on the web at:  
+
+    http://www.scl.ameslab.gov/Projects/MP_Lite/
+
+
+MP_Lite or MPI_Lite?
+
+   You can use either the MP_Lite syntax, or the MPI syntax for the subset of
+MPI commands supported.  Both provide the same high level of performance.
+
+   The MP_Lite syntax is simpler and does not require include files.  Multiple
+function bindings and the simpler syntax make the code more readable.
+MP_Lite applications can always be run on top of MPI to retain full portability
+by using 'make mpi' to make the MP_Lite library.
+
+   If you use MPI syntax, your code should not need to be changed provided
+you use only the subset of the MPI commands that MP_Lite supports.  You
+must insure that the mpi.h or mpif.h include file used is the one that
+comes with MP_Lite.  If there is already another MPI implementation installed
+on your system, conflicts may occur and you may need to specify the path
+to the MP_Lite include file using the -I parameter when compiling.  If this
+fails, you can always rename the include files to prevent any conflicts.
+
+
+Before you get started
+
+   In order to use MP_Lite, the processors you plan to run on must share the
+same file system.  For Unix systems, you must be able to use rsh or ssh between
+them without entering a password.  If you need to test this, simply try 
+'rsh other_host_name ls' which should return the file list from your home 
+directory on the other host.  If rsh is disabled on your systems in favor of 
+ssh, simply change the 'set $RSH=rsh' line at the beginning of the bin/mprun 
+script.
+
+
+Compiling MP_Lite
+
+  The makefile is set up for using cc and f77.  Edit the makefile if you
+need to change these.  If you have no f77 compiler, follow the directions
+at the beginning of the makefile to omit the Fortran parts.
+
+  Workstations:    make tcp     or  make tcp_sync
+  Cray T3E:        make shmem
+  MPI:             make mpi     assuming mpicc and mpif77 are set up properly
+  Intel Paragon:   make paragon (uses the default MPI paths)
+  VIA hardware:    make giganet (I haven't tested ServerNet hardware yet)
+  M-VIA Ethernet:  make mvia
+  Scalar:          make scalar
+
+   For workstations, type 'make tcp' and link libmplite.a into your code.
+If you are sure you won't pass messages larger than the TCP buffer
+size, you can use the synchronous version by doing 'make tcp_sync'
+which may increase performance by a few %.  The TCP buffer size is reported
+in the .nodeX log files after each run.
+   'make scalar' will compile MP_Lite for scalar machines, which basically
+nullifies the MP_Lite commands in a graceful manner.
+   'make mpi' is used to run codes with the MP_Lite syntax on machines
+that run MPI.  Do not try to run MPI programs on top of MP_Lite that has 
+been compiled using 'make mpi', as the two levels of MPI will conflict.
+   The Giganet hardware is expensive, but very fast with a low latency.
+Running MP_Lite on M-VIA on Gigabit Ethernet hardware can provide low
+latency with a higher bandwidth using certain GE devices.
+
+
+Testing MP_Lite
+
+   'make pong' will compile and link the pong.c test code.  To run, use the
+mprun command in the MP_Lite_2.x/bin directory.  You may need to edit
+the mprun script to specify whether you are using ssh or rsh (or bpsh
+for Scyld).
+
+   mprun -np 2 -h host1 host2 pong
+
+This will start pong running on the two hosts listed.  Type 'mprun -usage'
+for a more complete listing of the mprun options.
+
+Version 2.4?
+
+   - There are several SMP modules available for testing.  You must
+     link shm.c to the one you wish to use.  All use a shared-memory
+     segment to pass the message data.  The difference is in how
+     the header info is passed.
+
+     shm_sema2.c is a semaphore based, which is closest to what the
+     other MPI libraries use.  Semaphores lock other processes out
+     while the linked list of messages is being altered.
+
+     shm_sig.c uses no semaphores.  Each process has its own section
+     of the segment to write messages to, avoiding conflicts.  After
+     a message is written, a SIGUSR is sent to the destination to 
+     wake it up from a usleep() if needed.
+
+     shm_fifo.c also uses no semaphores as above, but sends the
+     message headers through a FIFO pipe to the destination.
+     The destination therefore blocks on a read from the FIFO,
+     which is pretty efficient.
+
+     shm_spin.c is a spinlock (busy-wait) approach under development.
+     It also uses no semaphores as above.  The destination blocks
+     in a spinlock until the matching message is ready.  This achieves
+     a very low latency, but care must be taken to not burden the CPU.
+     This method is used for small messages in LAM.
+
+Version 2.3
+
+   - Support for VIA devices has been added.  The tcp.c signals method
+     has been further optimized so that it provides nearly all the 
+     performance that raw TCP offers.  This also means the synchronous
+     module of MP_Lite is not useful any more.  Several bugs were also
+     fixed in the message queueing system.  Added Scott Brozell's
+     MPI_Abort() and MPI_Waitall() functions to mpi_wrappers.c.
+
+Version 2.2
+
+   - Support for incoming messages smaller than the posted size added to tcp.c.
+     (This support still needs to be added to shmem.c)
+
+Version 2.1
+
+   - Support for MPI Cartesian topology commands has been added.  Keep
+     in mind though that MP_Lite only supports one communicator that
+     is the set of all nodes.  The Cartesian support is just for 
+     rearranging the nodes into an n-degree mesh.
+   - Support for the status structure has also been added, along with
+     some MPI functions like MPI_Get_count() and MPI_Status_c2f().
+
+Version 2.0
+
+   - All sends/recvs now use message tags.
+     Out-of-order reception requires buffering, which lowers performance.
+   - Specifying the source as -1 or MPI_ANY_SOURCE will match a message
+     from any source.  This is convenient at times, but cuts performance
+     greatly.
+ --> Therefore, you will get better performance by specifying the source
+     node in your Recv() functions.  This is one of the major advantages
+     of MP_Lite over other message passing libraries, but it only helps
+     if you take advantage of it.
+   - tcp version tested for: Linux 2.x, DEC Tru64 v4.0D, Solaris 2.6, 
+                             AIX 4.2 & 4.3, IRIX 5.3,6.2,6.5
+                             (doesn't work under HP-UX now)
+     NOTE:  IRIX does not generate a SIGIO when the TCP buffer drains, 
+            so the asynchronous versions will also have problems for 
+            messages larger than the buffer size.  For IRIX 6.x this is not
+            much of a problem due to the large buffer size.
+
+Version 1.9
+
+     Same as version 2.0 but with a few bugs in the shmem.c module.  These
+     will be out by the December 1st release date of version 2.0.
+
+Version 1.1
+
+   - Added an .mplite.status file
+   - Added trace routines to shmem.c
+   - changed MP_Broadcast() to a binary tree algorithm for greater efficiency
+   - Added masked versions of the global operations, i.e. MP_dSum_masked()
+   - Combined SIGIO and sync versions of TCP into tcp.c
+   - Reworked TCP handshaking to allow for smoother, more reliable operation
+   - TCP version can now handle multiple processes per scalar or SMP node,
+        albeit with poor efficiency at this time.  I'll work on a high
+        performance SMP version later.  For IRIX, use make sync.
+
+
+Version 1.0 is the first official release of MP_Lite.
+
+Known problems:
+
+  Linux 2.0.x is stable, but has dramatic drop-outs in the network performance.
+  Linux 2.1.x is not terribly stable, but provides good TCP performance.
+  Linux 2.2.x is pretty stable, and provides good TCP performance.
+
+  Linux - pThreads uses SIGUSR1 & 2, so MP_Bedcheck() will not work.
+
+  T3E   - Note: MP_Lite assumes a double is 8 bytes.  Use Real*8 or compile
+          with 'f90 -dp'.
+
+
+Future work:  add functionality, don't change the core
+
+   - Add I/O support routines, if I can come up with a good way of doing this
+   - Implement globals with a binary tree algorithm for more efficiency
+   - Pipe and sync globals to overlap comp and comm time
+
+
+Bugs or comments?
+
+   Contact Dave Turner at turner@ameslab.gov
+ 
+
+Source code summary
+
+   mprun          --> csh script for starting MP_Lite runs
+
+   mplite.c & .h  --> Heart of MP_Lite, contains global and misc
+                      high-level operations 
+   f77_wrappers.c --> fortran wrappers to allow mplite's C routines to 
+                      be called from f77 code.
+
+   tcp.c          --> module to allow MP_Lite to run using TCP
+   via.c          --> module to run on VIA hardware or M-VIA on Ethernet
+   shm.c          --> module to allow MP_Lite to run in SMP mode using 
+                      shared memory segments to pass or share data
+   shmem.c        --> module to allow MP_Lite to run on Cray's shmem library
+                      (has not been tried on SGI Origin's yet)
+   mpi.c & mpi.h  --> module to allow MP_Lite code to run on MPI
+   scalar.c       --> module to allow MP_Lite to run on single processors
+
+   f77.f          --> f77 code for MPI_INIT() and MP_ENTER() routines
+   mpif.h         --> header file for using f77 MPI calls for MP_Lite
+   io.c           --> Global I/O routines - experimental
+   iof.f          --> f77 based global I/O routines similar to io.c
+   pong.c         --> MP_Lite ping-pong test program
+   protos.h       --> prototypes for all MP_Lite functions
+   timer.c        --> timing routines
+
+
+TCP buffer sizes         default       maximum
+ Linux 2.x               65536 B      65536 B  (Can be changed, see below)
+ IRIX 6.2 & 6.5          61440 B       4+ MB   (Tunable)
+ IRIX 5.3                61440 B       512 kB  (???)
+ Solaris 2.6              8192 B        1 MB   (???)
+ AIX 4.2                 16384 B      65536 B  (Tunable)
+ AIX 4.3                131072 B        1 MB   (Tunable)
+ DEC Tru64               32768 B     131072 B  (???)
+
+
+On most flavors of Unix, you can increase the maximum TCP buffer size
+by adding commands to the rc.local file or its equivalent.  Under Linux,
+add the following to /etc/rc.d/rc.local to increase the max to 4 MB.
+
+      echo 4194304 > /proc/sys/net/core/rmem_max
+      echo 4194304 > /proc/sys/net/core/wmem_max

@@ -1,0 +1,5 @@
+gcc pingpong.c rc_pingpong.c -libverbs -o rc_pingpong
+gcc pingpong.c ud_pingpong.c -libverbs -o ud_pingpong
+
+## usage: elf22>  rc_pingpong -d mlx4_0 -i 1
+##        elf23>  rc_pingpong -d mlx4_0 -i 1 elf22

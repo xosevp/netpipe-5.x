@@ -1,0 +1,4 @@
+#! /bin/csh -f
+
+set file=`echo $1 | cut -d"." -f1`
+f77 -o $file $file.F -I.. -L.. -lmplite

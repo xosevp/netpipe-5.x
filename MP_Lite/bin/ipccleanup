@@ -1,0 +1,65 @@
+#!/bin/sh
+
+echo ""
+echo "Usage: shmcleanup-- cleanup the memory of the current user " 
+echo "       shmcleanup user -- cleanup the memory of the specified user "
+echo "-------------------------------------------------------------------"
+echo ""
+
+case $# in 
+0)
+  ipcs -m | sed -n '/^$/d; 4,$p' | awk '/'$USER'/{print substr($0, 12,10)}' > .shm
+  count=`cat .shm | wc -l`
+  if test $count = 0
+  then
+    rm -f .shm
+    echo "No shared memory allocated for $USER"
+  else
+    sed -e 's/^/ipcrm shm /' .shm >.shmrm
+    chmod +x .shmrm
+    .shmrm
+    rm -f .shm .shmrm
+  fi
+  ipcs -s | sed -n '/^$/d; 4,$p' | awk '/'$USER'/{print substr($0, 12,10)}' > .sem
+  count=`cat .sem | wc -l`
+  if test $count = 0
+  then
+    rm -f .sem
+    echo "No semaphore allocated for $USER"
+  else
+    sed -e 's/^/ipcrm sem /' .sem >.semrm
+    chmod +x .semrm
+    .semrm
+    rm -f .sem .semrm
+  fi
+;;
+1)
+  ipcs -m | sed -n '/^$/d; 4,$p' | awk '/'$1'/{print substr($0, 12,10)}' > .shm
+  count=`cat .shm | wc -l`
+  if test $count = 0 
+  then
+    rm -f .shm
+    echo "No shared memory allocated for $1"
+  else 
+    sed -e 's/^/ipcrm shm /' .shm>.shmrm
+    chmod +x .shmrm
+    .shmrm
+    rm -rf .shm .shmrm
+  fi 
+  ipcs -s | sed -n '/^$/d; 4,$p' | awk '/'$1'/{print substr($0, 12,10)}' > .sem
+  count=`cat .sem | wc -l`
+  if test $count = 0
+  then
+    rm -f .sem
+    echo "No semaphore allocated for $1"
+  else
+    sed -e 's/^/ipcrm sem /' .sem>.semrm
+    chmod +x .semrm
+    .semrm
+    rm -rf .sem .semrm
+  fi
+;;
+*)
+;;
+esac
+

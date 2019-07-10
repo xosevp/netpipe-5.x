@@ -1,0 +1,67 @@
+#!/bin/bash -l
+#SBATCH --job-name=netpipe
+#SBATCH --output=netpipe.o%j
+#SBATCH --time=25:00:00
+#SBATCH --mem=100G
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=24
+##SBATCH --constraint=heroes
+#SBATCH --nodelist=hero35
+##SBATCH --nodelist=elf22
+#SBATCH --partition=ksu-cis-hpc.q,batch.q
+#SBATCH --tmp=100G
+
+host=`echo $SLURM_JOB_NODELIST | sed s/[^a-z]/\ /g | cut -f 1 -d ' '`
+nprocs=$SLURM_NTASKS
+
+# Make an OpenMPI hostname file for 1 task per node
+openmpi_hostfile.pl $SLURM_JOB_NODELIST 1 hf.$host
+
+echo "*******************************************************************"
+echo "Running on $SLURM_NNODES nodes $nprocs cores on nodes $SLURM_JOB_NODELIST"
+echo "*******************************************************************"
+
+rw="${host}.write.o_sync"
+opts="--write --binary --start 100000 --end 1000000000"
+
+rm -f ./npdisk.binary* /bulk/daveturner/npdisk.binary* /scratch/daveturner/npdisk.binary*
+mpirun -np $nprocs NPdisk $opts --datafile ./npdisk.binary -o np.${rw}.binary.homes.mpi24
+mpirun -np $nprocs NPdisk $opts --datafile /bulk/daveturner/npdisk.binary -o np.${rw}.binary.bulk.mpi24
+mpirun -np $nprocs NPdisk $opts --datafile /scratch/daveturner/npdisk.binary -o np.${rw}.binary.scratch.mpi24
+mpirun -np $nprocs NPdisk $opts --datafile /tmp/npdisk.binary -o np.${rw}.binary.tmp.mpi24
+mpirun -np $nprocs NPdisk $opts --datafile /dev/shm/npdisk.binary -o np.${rw}.binary.ramdisk.mpi24
+rm /dev/shm/npdisk.binary
+
+#NPmemcpy --dcopy --end 100000000 -o np.elf.memcpy
+
+
+exit
+
+NPdisk --$rw --binary --datafile ./npdisk.binary -o np.${rw}.hero.binary.homes
+NPdisk --$rw --binary --datafile /bulk/daveturner/npdisk.binary -o np.${rw}.hero.binary.bulk
+NPdisk --$rw --binary --datafile /scratch/daveturner/npdisk.binary -o np.${rw}.hero.binary.scratch
+
+exit
+
+mkdir -p garb /bulk/daveturner/garb /scratch/daveturner/garb /dev/shm/daveturner/garb
+NPdisk --cp garb --datafile npdisk.cp -o np.disk.hero.cp.homes
+NPdisk --cp /bulk/daveturner/garb --datafile npdisk.cp -o np.disk.hero.cp.bulk
+NPdisk --cp /scratch/daveturner/garb --datafile npdisk.cp -o np.disk.hero.cp.scratch
+NPdisk --cp /tmp --datafile npdisk.cp -o np.disk.hero.cp.tmp
+NPdisk --cp /dev/shm/daveturner/garb --datafile npdisk.cp -o np.disk.hero.cp.ramdisk
+rm -fr /dev/shm/daveturner
+
+
+exit
+
+
+exit
+
+for i in {1..10000};
+do
+   NPdisk --write --string 10000 --datafile np.data.string10k --repeats 100000 --start 1000000
+   #NPdisk --write --string 10000 --datafile np.data.string10k
+   #NPdisk --write --char --datafile np.data.char
+   #NPdisk --write --double --datafile np.data.double
+done
+
