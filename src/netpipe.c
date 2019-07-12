@@ -1094,7 +1094,7 @@ double DoWork( char *type, int nelem, int count, int calibration )
 
 char * bytestring( int nbytes )
 {
-   char bstring[20];
+   char bstring[32];
 
    if( nbytes < 1e3 ) {
       sprintf( bstring, GREEN  "    %3d  B" RESET, nbytes);
@@ -1112,7 +1112,7 @@ char * bytestring( int nbytes )
 
 char * bitstring( double gbps )
 {
-   char bstring[22];
+   char bstring[32];
    double bps = gbps * 1e9;
 
    if( bps < 1.0e3) {
