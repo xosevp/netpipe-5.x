@@ -84,7 +84,6 @@ void Module_Setup()
    recvRequest = malloc( sizeof(MPI_Request) );
 }   
 
-   // Sync within each host, sync between hosts, then send go to all within host
 
 void Sync()
 {
@@ -94,9 +93,67 @@ void Sync()
 }
 
 /*
+   // Sync within each host, sync between hosts, then send go to all within host
+   //   Can't remember why this was useful over MPI_Barrier()
+
 void Sync2()
 {
-    MPI_Barrier(MPI_COMM_WORLD);
+   int myroot, i;
+   double token = myproc, rtoken;
+   MPI_Status status;
+
+   dbprintf("%d in Sync\n", myproc);
+   if( myproc < nprocs/2 ) myroot = 0;
+   else                    myroot = nprocs/2;
+
+      // Sync my half of the processes together first
+
+   if( nprocs == 2 ) { // 1 proc per host so skip this step
+
+   } else if( myproc == myroot ) {    // Collect msgs from all procs on my host
+
+      for( i = myproc+1; i < myproc+nprocs/2; i++ ) {
+         MPI_Recv( &rtoken, 1, MPI_DOUBLE, i, btag, MPI_COMM_WORLD, &status);
+      }
+
+   } else {                           // Send msg to my root
+
+      MPI_Send( &token, 1, MPI_DOUBLE, myroot, btag, MPI_COMM_WORLD);
+
+   }
+   btag = (btag + 1) % nrepeats + nrepeats;
+
+      // Now have the roots on each host sync
+
+   if( myproc == 0 ) {
+
+      MPI_Send(  &token, 1, MPI_DOUBLE, nprocs/2, btag, MPI_COMM_WORLD);
+      MPI_Recv( &rtoken, 1, MPI_DOUBLE, nprocs/2, btag, MPI_COMM_WORLD, &status);
+
+   } else if( myproc == nprocs/2 ) {
+
+      MPI_Recv( &rtoken, 1, MPI_DOUBLE, 0, btag, MPI_COMM_WORLD, &status);
+      MPI_Send(  &token, 1, MPI_DOUBLE, 0, btag, MPI_COMM_WORLD);
+   }
+   btag = (btag + 1) % nrepeats + nrepeats;
+
+      // Send all nodes on my host their go message
+
+   if( nprocs == 2 ) {           // 1 proc per host so skip this
+
+   } else if( myproc == myroot ) {
+
+      for( i = myproc+1; i < myproc+nprocs/2; i++ ) {
+         MPI_Send( &token, 1, MPI_DOUBLE, i, btag, MPI_COMM_WORLD);
+      }
+
+   } else {
+
+      MPI_Recv( &rtoken, 1, MPI_DOUBLE, myroot, btag, MPI_COMM_WORLD, &status);
+
+   }
+   btag = (btag + 1) % nrepeats + nrepeats;
+   dbprintf("%d exiting Sync\n", myproc);
 }
 */
 
