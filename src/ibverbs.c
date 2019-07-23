@@ -293,7 +293,7 @@ void Module_Setup( )
 
          } else if( (!strcmp( device, devname) && port == j ) ||  // My device and port
                     ( port == 0 && ib_port == 0 ) ) {             // First active
-            
+
             ib_port = j;
             max_device_wr = device_attr.max_qp_wr;
             max_mr_size   = device_attr.max_mr_size;
@@ -718,13 +718,27 @@ void init_context(struct ibv_device *ib_dev)
    qp_init_attr.recv_cq = ib_recv_cq;
    qp_init_attr.srq     = NULL;
    qp_init_attr.sq_sig_all = 0;    // Manually set send signals elsewhere
-   qp_init_attr.cap.max_send_wr  = tx_depth;
-   qp_init_attr.cap.max_recv_wr  = rx_depth;
    qp_init_attr.cap.max_send_sge = 10;
    qp_init_attr.cap.max_recv_sge = 10;
 
    qp_init_attr.qp_type = IBV_QPT_RC;
    if( unreliable ) qp_init_attr.qp_type = IBV_QPT_UD;   // Unreliable datagram
+
+      // Determine the max number of outstanding work requests
+
+   qp_init_attr.cap.max_send_wr = tx_depth;
+   qp_init_attr.cap.max_recv_wr = rx_depth;
+   do {
+      ib_qp[0] = ibv_create_qp(ib_pd, &qp_init_attr);
+
+      if( ib_qp[0] != NULL ) break;
+
+      --qp_init_attr.cap.max_send_wr;
+      --qp_init_attr.cap.max_recv_wr;
+   } while( qp_init_attr.cap.max_send_wr >= 1 );
+   if( ib_qp[0] ) ibv_destroy_qp( ib_qp[0] );
+   mprintf("  max reqs %d  ", qp_init_attr.cap.max_send_wr);
+
 
       // Determine the max inline data size
 
@@ -749,7 +763,7 @@ void init_context(struct ibv_device *ib_dev)
 
       ib_qp[i] = ibv_create_qp(ib_pd, &qp_init_attr);
 
-      ERRCHECK( ! ib_qp[i], "Could not create QP %d\n", i );
+      ERRCHECK( ! ib_qp[i], "Could not create QP %d -- error: %s (%d)\n", i, strerror(errno), errno );
    }
 
    local.qpn = ib_qp[0]->qp_num;    // First QP receives
