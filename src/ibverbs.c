@@ -85,7 +85,7 @@ struct ib_info {
 int allaccess = ( IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE | 
                   IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_ATOMIC );
 
-int mtu = 2048, nacks = 1, pinned = 1, port;
+int mtu = 2048, nacks = 1, pinned = 1, port = -1;
 int unreliable = 0, ud_memcpy = 0, ud_bufsize = 0, sendqps = 1;
 int send_posts = 0, recv_posts = 0, inline_data = 0, max_inline_data = 0;
 char *ud_buf;
@@ -117,7 +117,7 @@ void Module_Init(int* pargc, char*** pargv)
    MPI_Comm_rank(MPI_COMM_WORLD, &myproc);
    MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
 
-   device = strdup( " " );
+   device = NULL;
    gethostname( local.hostname, 32);
    srand48(getpid() * time(NULL));
 
@@ -291,8 +291,9 @@ void Module_Setup( )
          if( ib_port_attr.state != IBV_PORT_ACTIVE ) {
             mprintf(" - connection not active\n");
 
-         } else if( (!strcmp( device, devname) && port == j ) ||  // My device and port
-                    ( port == 0 && ib_port == 0 ) ) {             // First active
+         } else if (((device && !strcmp( device, devname)) || 
+                     (!device && ib_port == 0)) &&
+                    ( port == 0 && ib_port == 0 )) {
 
             ib_port = j;
             max_device_wr = device_attr.max_qp_wr;
@@ -307,7 +308,6 @@ void Module_Setup( )
             }
             mprintf(" - using this connection\n");
             device = strdup( devname );
-            port = j;
 
          } else mprintf("\n");
       }
