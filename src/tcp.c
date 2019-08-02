@@ -100,7 +100,7 @@ void Module_Setup()
    serv_sd = np_create_socket( );  // This will be the listening socket
 
    bound = bind(serv_sd, (const struct sockaddr *) sdout, sizeof(*sdout) );
-   ERRCHECK( bound, "%d bind on local address failed! errno=%d\n", myproc, errno);
+   ERRCHECK( bound, "%d bind on local address failed!", myproc);
 
    listen(serv_sd, 5); // Set the socket to listen for incoming connections
 
@@ -122,18 +122,18 @@ int np_create_socket()
    struct protoent *proto;
 
    sd = socket(AF_INET, SOCK_STREAM, 0);
-   ERRCHECK( sd < 0, "%d can't open the stream socket! errno=%d\n", myproc, errno);
+   ERRCHECK( sd < 0, "%d can't open the stream socket!", myproc);
 
    proto = getprotobyname("tcp");
-   ERRCHECK( ! proto, "%d protocol tcp unknown! %d\n", myproc, errno);
+   ERRCHECK( ! proto, "%d protocol tcp unknown!", myproc);
 
        // Attempt to set TCP_NODELAY
 
    err = setsockopt(sd, proto->p_proto, TCP_NODELAY, (const void *) &one, sizeof(one));
-   ERRCHECK( err < 0, "%d setsockopt: TCP_NODELAY failed! errno=%d\n", myproc, errno);
+   ERRCHECK( err < 0, "%d setsockopt: TCP_NODELAY failed!", myproc);
 
    err = setsockopt(sd, SOL_SOCKET, SO_REUSEADDR, (const void *) &one, sizeof(one));
-   ERRCHECK( err < 0, "%d setsockopt: SO_REUSEADDR failed! errno=%d\n", myproc, errno);
+   ERRCHECK( err < 0, "%d setsockopt: SO_REUSEADDR failed!", myproc);
 
       // If requested, set the send and receive buffer sizes
 
@@ -142,11 +142,11 @@ int np_create_socket()
       err = setsockopt(sd, SOL_SOCKET, SO_SNDBUF, 
           (const void *) &(tcpbuffersize), sizeof(tcpbuffersize));
       ERRCHECK( err < 0, 
-          "%d setsockopt: SO_SNDBUF failed (larger than actual buffer)!\n", myproc);
+          "%d setsockopt: SO_SNDBUF failed (larger than actual buffer)!", myproc);
       err = setsockopt(sd, SOL_SOCKET, SO_RCVBUF, 
           (const void *) &(tcpbuffersize), sizeof(tcpbuffersize));
       ERRCHECK( err < 0, 
-          "%d setsockopt: SO_RCVBUF failed (larger than actual buffer)!\n", myproc);
+          "%d setsockopt: SO_RCVBUF failed (larger than actual buffer)!", myproc);
    }
 
    getsockopt(sd, SOL_SOCKET, SO_SNDBUF,
@@ -178,7 +178,7 @@ void np_connect_to( )
    memset( sdin, 0, sizeof( *sdin ) );
 
    addr = gethostbyname(remotehost);
-   ERRCHECK( !addr, "%d invalid remote hostname '%s'\n", myproc, remotehost);
+   ERRCHECK( !addr, "%d invalid remote hostname '%s'", myproc, remotehost);
 printf("addr->h_name = %s\n", addr->h_name);
 printf("addr->h_addrtype = %d\n", addr->h_addrtype);
 printf("addr->h_length = %d\n", addr->h_length);
@@ -197,14 +197,14 @@ printf("sdin->sin_port = %d\n", sdin->sin_port);
          // Keep trying until mypair has gotten to its accept() function
 
       ERRCHECK( (!reset_conn || errno != ECONNREFUSED) && myclock()-t0 > 20.0,
-               "%d Cannot connect for 20 seconds! errno=%d\n", myproc, errno);
+               "%d Cannot connect for 20 seconds!", myproc);
       sleep(1);
    }
 
       // Do a read here to make sure the socket is completely connected
 
    readFully( (char *) buf, strlen(buf)); 
-   ERRCHECK( strcmp( buf, "SyncMe"), "Error reading sync buffer in np_connect_to()\n");
+   ERRCHECK( strcmp( buf, "SyncMe"), "Error reading sync buffer in np_connect_to()");
 }
 
    // Accept a connect from mypair on the listen socket
@@ -219,21 +219,21 @@ void accept_from( )
    clen = (socklen_t) sizeof(sdout);
 
    comm_sd = accept(serv_sd, (struct sockaddr *) sdout, &clen);
-   ERRCHECK( comm_sd < 0, "%d Accept Failed! errno=%d\n", myproc, errno);
+   ERRCHECK( comm_sd < 0, "%d Accept Failed!", myproc);
 
       // Attempt to set TCP_NODELAY. TCP_NODELAY may or may not be propagated
       // to accepted sockets.
 
    proto = getprotobyname("tcp");
-   ERRCHECK( ! proto, "%d Unknown protocol! errno=%d\n", myproc, errno);
+   ERRCHECK( ! proto, "%d Unknown protocol!", myproc);
 
    err = setsockopt(comm_sd, proto->p_proto, TCP_NODELAY,
                  (const void *) &one, sizeof(one));
-   ERRCHECK( err < 0, "%d TCP_NODELAY Failed! errno=%d\n", myproc, errno);
+   ERRCHECK( err < 0, "%d TCP_NODELAY Failed!", myproc);
 
    err = setsockopt(comm_sd, SOL_SOCKET, SO_REUSEADDR, 
                     (const void *) &one, sizeof(one));
-   ERRCHECK( err < 0, "%d SO_REUSEADDR Failed! errno=%d\n", myproc, errno);
+   ERRCHECK( err < 0, "%d SO_REUSEADDR Failed!", myproc);
 
       // If requested, set the send and receive buffer sizes
 
@@ -242,11 +242,11 @@ void accept_from( )
       err = setsockopt(comm_sd, SOL_SOCKET, SO_SNDBUF, 
           (const void *) &(tcpbuffersize), sizeof(tcpbuffersize));
       ERRCHECK( err < 0, 
-          "%d setsockopt: SO_SNDBUF failed (larger than actual buffer)!\n", myproc);
+          "%d setsockopt: SO_SNDBUF failed (larger than actual buffer)!", myproc);
       err = setsockopt(comm_sd, SOL_SOCKET, SO_RCVBUF, 
           (const void *) &(tcpbuffersize), sizeof(tcpbuffersize));
       ERRCHECK( err < 0, 
-          "%d setsockopt: SO_RCVBUF failed (larger than actual buffer)!\n", myproc);
+          "%d setsockopt: SO_RCVBUF failed (larger than actual buffer)!", myproc);
    }
 
    writeFully( (char *) buf, strlen(buf));  // Write to mypair to check the connection
@@ -281,7 +281,7 @@ void establish()
       socket_flags = socket_flags + O_NONBLOCK;
 #endif
       err = fcntl(comm_sd, F_SETFL, socket_flags);
-      ERRCHECK( err, "%d fcntl failed!  err = %d\n", myproc, err);
+      ERRCHECK( err, "%d fcntl failed!", myproc);
    }
 }
 
@@ -294,8 +294,7 @@ int readOnce()
    bytesRead = read(comm_sd, (void *) r_ptr, bytesLeft);
 
    if( bytesRead < 0 && errno == EWOULDBLOCK ) bytesRead = 0;
-   ERRCHECK( bytesRead < 0, "%d read %d of %d (errno=%d)\n", 
-              myproc, buflen - bytesLeft, buflen, errno);
+   ERRCHECK( bytesRead < 0, "%d read %d of %d", myproc, buflen - bytesLeft, buflen);
 
    bytesLeft -= bytesRead;    // Global var: running total of bytes left
    r_ptr     += bytesRead;    // r_ptr will be reset after completion
@@ -315,8 +314,7 @@ void readFully( char *ptr, int nbytes )
       bytesRead = read(comm_sd, (void *) ptr, nbytes);
 
       if( bytesRead < 0 && errno == EWOULDBLOCK ) bytesRead = 0;
-      ERRCHECK( bytesRead < 0, "%d read %d of %d (errno=%d)\n", 
-                myproc, buflen - nbytes, buflen, errno);
+      ERRCHECK( bytesRead < 0, "%d read %d of %d", myproc, buflen - nbytes, buflen);
 
       nbytes -= bytesRead;
       ptr    += bytesRead;
@@ -334,8 +332,7 @@ void writeFully( char *ptr, int nbytes)
       bytesSent = write(comm_sd, (void *) ptr, nbytes);
 
       if( bytesSent < 0 && errno == EWOULDBLOCK ) bytesSent = 0;
-      ERRCHECK( bytesSent < 0, "%d write %d of %d (errno=%d)\n", 
-                myproc, buflen - nbytes, buflen, errno);
+      ERRCHECK( bytesSent < 0, "%d write %d of %d", myproc, buflen - nbytes, buflen);
 
       nbytes -= bytesSent;
       ptr    += bytesSent;

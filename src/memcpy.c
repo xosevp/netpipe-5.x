@@ -74,7 +74,7 @@ void Module_ArgOpt( char *arg, char *opt )
       mprintf("\nPushing data through a non-blocking pipe()\n");
       int flags;
       err = pipe( pd );
-      ERRCHECK( err, "Could not create the pipe()\n");
+      ERRCHECK( err, "Could not create the pipe()");
 
          // Make the pipe non-blocking
       flags = fcntl( pd[0], F_GETFL, 0);
@@ -233,7 +233,7 @@ void SendData()
       }
 
    } else {
-      ERRCHECK( 1, "You must choose memcpy, memset, dcopy, dread, dwrite, pipe\n");
+      ERRCHECK( 1, "You must choose memcpy, memset, dcopy, dread, dwrite, pipe");
    }
 }
 

@@ -39,7 +39,7 @@ int Module_Init(int* pargc, char*** pargv)
 int Module_ArgOpt( char *arg, char *opt )
 {
    //if(        !strcmp( arg, "mtu") ) {
-      //ERRCHECK( ! opt, "No MTU size was specified\n");
+      //ERRCHECK( ! opt, "No MTU size was specified");
       //mtu    = atoi( opt );         // 2048 is the default
    //} else {
    //}

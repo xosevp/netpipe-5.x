@@ -266,7 +266,7 @@ void Broadcast(int *nrepeat)
    if( burst ) {
       free( recvRequest );
       recvRequest = malloc( nrepeats * sizeof(MPI_Request) );
-      ERRCHECK( recvRequest == NULL, "Could not malloc %d recvRequest\n", nrepeats);
+      ERRCHECK( recvRequest == NULL, "Could not malloc %d recvRequest", nrepeats);
    }
 
    stag = rtag = 0;   // Reset all tags

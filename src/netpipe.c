@@ -166,17 +166,17 @@ int main(int argc, char *argv[])
          mprintf("Preposting all receives before a timed run\n");
 
       } else if( !strcmp( arg, "soffset") || !strcmp( arg, "send_offset") ) {
-         ERRCHECK( !opt, "No send offset value given\n");
+         ERRCHECK( !opt, "No send offset value given");
          soffset = atoi(opt);
          mprintf("Offsetting send buffer by %d from page aligned\n", soffset);
 
       } else if( !strcmp( arg, "roffset") || !strcmp( arg, "recv_offset") ) {
-         ERRCHECK( !opt, "No recv offset value given\n");
+         ERRCHECK( !opt, "No recv offset value given");
          roffset = atoi(opt);
          mprintf("Offsetting recv buffer by %d from page aligned\n", roffset);
 
       } else if( !strcmp( arg, "perturbation") || !strcmp( arg, "pert") ) {
-         ERRCHECK( !opt, "No perturbation value given\n");
+         ERRCHECK( !opt, "No perturbation value given");
          perturbation = atoi(opt);
 
       } else if( !strcmp( arg, "factorsof2") || !strcmp( arg, "fac2") ) {
@@ -201,32 +201,32 @@ int main(int argc, char *argv[])
          if( nrepeat_const == 0 ) nrepeat_const = 1;
 
       } else if( !strcmp( arg, "outfile") || !strcmp( arg, "o") ) {
-         ERRCHECK( !opt, "No output file name given\n");
+         ERRCHECK( !opt, "No output file name given");
          outfile = strdup(opt);
          mprintf("Saving output to %s\n\n", outfile);
 
       } else if( !strcmp( arg, "stream") ) {
          stream = 1;
-         ERRCHECK( bidir, "You cannot use stream and bidirection together\n");
+         ERRCHECK( bidir, "You cannot use stream and bidirection together");
          mprintf("Streaming data in one direction\n");
          mprintf("    Streaming does not necessarily provide an accurate measurement\n");
          mprintf("    of the latency since small messages may get bundled together.\n");
 
       } else if( !strcmp( arg, "start") ) {    // lower bound for the message size
-         ERRCHECK( !opt, "No lower bound given\n");
+         ERRCHECK( !opt, "No lower bound given");
          start = atoi(opt);
          ERRCHECK( start < 1 || start > end, 
-            "Lower bound %d must be positive and less than upper %d \n", start, end);
+            "Lower bound %d must be positive and less than upper %d", start, end);
 
       } else if( !strcmp( arg, "end") ) {    // upper bound for the message size
-         ERRCHECK( !opt, "No upper bound given\n");
+         ERRCHECK( !opt, "No upper bound given");
          end = atoi(opt);
-         ERRCHECK( end < start, "end %d must greater than start %d\n", end, start);
+         ERRCHECK( end < start, "end %d must greater than start %d", end, start);
 
       } else if( !strcmp( arg, "bidirectional") || !strcmp( arg, "bidir")  ) {
          bidir = 1;
          transmitter = 1;    // Both procs are transmitters
-         ERRCHECK( stream, "You cannot use stream and bidirection together\n");
+         ERRCHECK( stream, "You cannot use stream and bidirection together");
          mprintf("Bidirectional mode using %d pairs of processes.\n", nprocs/2);
          mprintf("The output shows the combined throughput.\n");
 
@@ -261,7 +261,7 @@ int main(int argc, char *argv[])
       npairs = nprocs/2;
    }
 
-   ERRCHECK(integrityCheck && burst, "Integrity check is not supported with burst mode\n");
+   ERRCHECK(integrityCheck && burst, "Integrity check is not supported with burst mode");
 
    if( nprocs > 2 && bidir == 0 && strcmp( module, "memcpy") && strcmp(module,"disk") ) {
       mprintf("\nMultiple overlapping unidirectional communications may become out \n");
@@ -270,7 +270,7 @@ int main(int argc, char *argv[])
 
    if( myproc == 0 ) {   // Open the output file np.out
       out = fopen(outfile, "w");
-      ERRCHECK( out==NULL, "Can't open %s for output\n", outfile);
+      ERRCHECK( out==NULL, "Can't open %s for output", outfile);
    }
 
       // Very rough estimate for the clock accuracy
@@ -327,7 +327,7 @@ int main(int argc, char *argv[])
           // Allocate dummy pool of memory to flush cache with
 
       memcache = (int *) malloc( MEMSIZE );
-      ERRCHECK( memcache == NULL, "Error mallocing memcache\n");
+      ERRCHECK( memcache == NULL, "Error mallocing memcache");
       bzero( memcache, MEMSIZE);
 
           // Allocate large memory pools
@@ -381,7 +381,7 @@ int main(int argc, char *argv[])
          Broadcast(&nrepeat);
 
          ERRCHECK( nrepeat <= 0 || nrepeat > 1000000000, 
-                   "ERROR: nrepeat = %u is out of range (tlast = %lf)\n", nrepeat, tlast);
+                   "ERROR: nrepeat = %u is out of range (tlast = %lf)", nrepeat, tlast);
 
          mprintf("%3d: %s %9u times -->  ", n, bytestring(buflen), nrepeat);
          fflush( stdout );
@@ -914,7 +914,7 @@ void CheckBufferData()
    char * mymalloc( uint64_t nbytes ) {
       void *buf = NULL;
       int err = posix_memalign( &buf, PAGESIZE, nbytes );
-      ERRCHECK( err, "Could not malloc %lu bytes\n", nbytes);
+      ERRCHECK( err, "Could not malloc %lu bytes", nbytes);
       return buf;
    }
    void   myfree( char *buf )    { free( buf ); }
@@ -941,7 +941,7 @@ void MallocBufs(  uint64_t size )
       // mymalloc will register memory or allocate from shared pool if necessary
 
    sr_buf = mymalloc( 2*nbytes );  // Uses posix_memalign() to page align
-   ERRCHECK( ! sr_buf, "Can't allocate %lu bytes for send/recv buffers\n", nbytes);
+   ERRCHECK( ! sr_buf, "Can't allocate %lu bytes for send/recv buffers", nbytes);
 
       // Set r_buf to second half and page align both buffers
 
@@ -1010,19 +1010,19 @@ double DoWork( char *type, int nelem, int count, int calibration )
       dbprintf("%d Initializing matrices for matrix multiplication\n", myproc);
       nbytes = nelem * sizeof( double * );
       A = malloc( nbytes );
-      ERRCHECK( !A, "Malloc of A for %d bytes failed\n", nbytes);
+      ERRCHECK( !A, "Malloc of A for %d bytes failed", nbytes);
       B = malloc( nbytes );
-      ERRCHECK( !B, "Malloc of B for %d bytes failed\n", nbytes);
+      ERRCHECK( !B, "Malloc of B for %d bytes failed", nbytes);
       C = malloc( nbytes );
-      ERRCHECK( !C, "Malloc of C for %d bytes failed\n", nbytes);
+      ERRCHECK( !C, "Malloc of C for %d bytes failed", nbytes);
       nbytes = nelem * sizeof( double );
       for( i = 0; i < nelem; i++ ) {
          A[i] = malloc( nbytes);
-         ERRCHECK( !A[i], "Malloc of A[%d] for %d bytes failed\n",i,nbytes);
+         ERRCHECK( !A[i], "Malloc of A[%d] for %d bytes failed",i,nbytes);
          B[i] = malloc( nbytes);
-         ERRCHECK( !B[i], "Malloc of B[%d] for %d bytes failed\n",i,nbytes);
+         ERRCHECK( !B[i], "Malloc of B[%d] for %d bytes failed",i,nbytes);
          C[i] = malloc( nbytes);
-         ERRCHECK( !C[i], "Malloc of C[%d] for %d bytes failed\n",i,nbytes);
+         ERRCHECK( !C[i], "Malloc of C[%d] for %d bytes failed",i,nbytes);
          for( j = 0; j < nelem; j++ ) {
             A[i][j] = i*nelem + j;
             B[i][j] = 2*j - 1;

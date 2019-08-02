@@ -136,7 +136,7 @@ void Module_ArgOpt( char *arg, char *opt )
       mprintf("Preposting asynchronous receives\n");
 
    } else if( !strcmp( arg, "mtu") ) {
-      ERRCHECK( ! opt, "No MTU size was specified\n");
+      ERRCHECK( ! opt, "No MTU size was specified");
       mtu    = atoi( opt );         // 2048 is the default
 
    } else if( !strcmp( arg, "polling") ) {   // Polling is default
@@ -147,7 +147,7 @@ void Module_ArgOpt( char *arg, char *opt )
       mprintf("Using Events completion\n");
 
    } else if( !strcmp( arg, "acks") || !strcmp( arg, "ack") ) {
-      ERRCHECK( ! opt, "You did not provide the number of acks to send at once\n");
+      ERRCHECK( ! opt, "You did not provide the number of acks to send at once");
       nacks = atoi( opt );
 
    } else if( !strcmp( arg, "rdma") ) {     // 2-sided is default
@@ -158,7 +158,7 @@ void Module_ArgOpt( char *arg, char *opt )
       mprintf("Using unreliable datagrams UD\n");
 
    } else if( !strcmp(arg,"qps") || !strcmp(arg,"sendqps") ) {
-      ERRCHECK( ! opt, "You did not specify the number of send QP's\n");
+      ERRCHECK( ! opt, "You did not specify the number of send QP's");
       sendqps = atoi( opt );
       mprintf("Unreliable datagrams will sent striped across %d QP's\n", sendqps);
 
@@ -177,11 +177,11 @@ void Module_ArgOpt( char *arg, char *opt )
       pinned = 0;
 
    } else if( !strcmp( arg, "device") ) {
-      ERRCHECK( ! opt, "No device name was specified\n");
+      ERRCHECK( ! opt, "No device name was specified");
       device = strdup( opt );
 
    } else if( !strcmp( arg, "port") ) {
-      ERRCHECK( ! opt, "No port number was specified\n");
+      ERRCHECK( ! opt, "No port number was specified");
       port = atoi( opt );
 
    } else {
@@ -219,14 +219,14 @@ void Module_Setup( )
    async = 1;  // InfiniBand requires asynchronus receives
 
    ERRCHECK( stream && comm_type == RDMA, 
-      "No flow control for RDMA writes so you cannot test in streaming mode\n");
+      "No flow control for RDMA writes so you cannot test in streaming mode");
 
    ERRCHECK( bidir && comm_type == RDMA, 
-      "No flow control for RDMA writes so you cannot test in bi-directional mode\n");
+      "No flow control for RDMA writes so you cannot test in bi-directional mode");
    // Would need to prepost the next recv before SendData as well to allow this
 
    ERRCHECK( burst && comm_type == RDMA, 
-      "burst mode for RDMA writes currently segfaults\n");
+      "burst mode for RDMA writes currently segfaults");
 
    if( comm_type == RDMA && burst ) {
       if( cache ) mprintf("Setting --nocache as required for burst mode using RDMA\n");
@@ -239,7 +239,7 @@ void Module_Setup( )
       case 1024: ib_mtu = IBV_MTU_1024; break;
       case 2048: ib_mtu = IBV_MTU_2048; break;
       case 4096: ib_mtu = IBV_MTU_4096; break;
-      default:   ERRCHECK( 1, "Invalide MTU of %d\n", mtu);
+      default:   ERRCHECK( 1, "Invalide MTU of %d", mtu);
    }
 
       // Allocate space for 1 or more QP pointers
@@ -248,8 +248,8 @@ void Module_Setup( )
 
       // Check the input parameters
 
-   ERRCHECK( ud_memcpy && ! unreliable, "--memcpy only works with UD\n");
-   ERRCHECK( nacks > 1 && (comp_type != EVENTS), "--acks only works when using events\n");
+   ERRCHECK( ud_memcpy && ! unreliable, "--memcpy only works with UD");
+   ERRCHECK( nacks > 1 && (comp_type != EVENTS), "--acks only works when using events");
    if( unreliable ) {
       //end = mtu;
       //mprintf("UD - setting the end to the MTU size of %d bytes\n", mtu);
@@ -258,7 +258,7 @@ void Module_Setup( )
       // Get the list of IB devices on each host
    
    dev_list = ibv_get_device_list(NULL);
-   ERRCHECK( ! dev_list, "Failed to get InfiniBand device list\n");
+   ERRCHECK( ! dev_list, "Failed to get InfiniBand device list");
 
       // Print the list and specs out to the screen for each device and port
       //   Choose the requested device and port or the first active
@@ -270,17 +270,17 @@ void Module_Setup( )
       devname = ibv_get_device_name(dev_list[i]);
 
       ctx = ibv_open_device( dev_list[i] );
-      ERRCHECK( ! ctx, "Couldn't get context for %s\n", devname);
+      ERRCHECK( ! ctx, "Couldn't get context for %s", devname);
 
       err = ibv_query_device( ctx, &device_attr);
-      ERRCHECK( err, "Couldn't query device to get attributes\n");
+      ERRCHECK( err, "Couldn't query device to get attributes");
 
       nports = device_attr.phys_port_cnt;
 
       for( j = 1; j <= nports; j++ ) {
 
          err = ibv_query_port(ctx, j, &ib_port_attr);
-         ERRCHECK( err, "Could not get port info for probe context\n");
+         ERRCHECK( err, "Could not get port info for probe context");
 
          mprintf(" device  %s:%d  ", devname, j);
          if( ib_port_attr.link_layer == IBV_LINK_LAYER_INFINIBAND ) mprintf(" InfiniBand      ");
@@ -313,7 +313,7 @@ void Module_Setup( )
       ibv_close_device( ctx );
    }
 
-   ERRCHECK( ib_port == 0, "No active ports found\n");
+   ERRCHECK( ib_port == 0, "No active ports found");
 
    mprintf("\nMaximum posts for %s:%d is %d, max memory registration is %d bytes\n", 
       device, port, max_device_wr, max_mr_size);
@@ -328,7 +328,7 @@ void Module_Setup( )
       // Get the port info for send and receive contexts
 
    err = ibv_query_port(ib_context, ib_port, &ib_port_attr);
-   ERRCHECK( err, "Couldn't get port info for context\n");
+   ERRCHECK( err, "Couldn't get port info for context");
    local.lid = ib_port_attr.lid;
    local.psn = lrand48() & 0xffffff;
 
@@ -337,7 +337,7 @@ void Module_Setup( )
    memset(&local.gid, 0, sizeof(local.gid));
    if( roce ) {    // DDT - eventually cycle thru gidx to find one that works???
       err = ibv_query_gid( ib_context, ib_port, gidx, &local.gid);
-      ERRCHECK( err, "Cannot read the gid of index %d\n", gidx);
+      ERRCHECK( err, "Cannot read the gid of index %d", gidx);
    }
 
    exchange_ib_settings( );       // Get remote IB information
@@ -386,7 +386,7 @@ void SendData( )
       rdma_put( s_ptr, buflen, send_mr->lkey, dr_ptr, remote.rkey );
 
    } else {
-      ERRCHECK(0, "ATOMIC not implemented yet\n");
+      ERRCHECK(0, "ATOMIC not implemented yet");
    }
 
    dbprintf("%d Done Sending %d bytes to %d\n", myproc, buflen, mypair);
@@ -418,7 +418,7 @@ void PrepostRecv( )
          ud_bufsize = nbytes;
          ud_buf = malloc( ud_bufsize );
          ud_mr = ibv_reg_mr(ib_pd, ud_buf, ud_bufsize, allaccess);
-         ERRCHECK( ! ud_mr, "Could not register MR for UD buffer\n");
+         ERRCHECK( ! ud_mr, "Could not register MR for UD buffer");
       }
 
       post_recv_UD( ud_buf, ud_bufsize, ud_mr->lkey );
@@ -432,7 +432,7 @@ void PrepostRecv( )
    if( comp_type == EVENTS ) {   // Request notification of cq event
 
       err = ibv_req_notify_cq( ib_recv_cq, 0);    // 0 means unsolicited
-      ERRCHECK( err, "Couldn't request CQ notification in PrepostRecv()\n");
+      ERRCHECK( err, "Couldn't request CQ notification in PrepostRecv()");
    }
    dbprintf("%d Done pre-posting %d bytes from %d\n", myproc, buflen, mypair);
 }
@@ -458,8 +458,8 @@ void RecvData( )
 
          nevents++;
          err = ibv_get_cq_event(ib_channel, &event_cq, &event_context);
-         ERRCHECK( err, "Failed to get cq_event\n");
-         ERRCHECK( event_cq != ib_recv_cq, "CQ event for unknown CQ %p\n", event_cq);
+         ERRCHECK( err, "Failed to get cq_event");
+         ERRCHECK( event_cq != ib_recv_cq, "CQ event for unknown CQ %p", event_cq);
 
          pollwait( send_posts, 1 );  // Poll block on recv and clear send if needed
 
@@ -542,7 +542,7 @@ void Module_CleanUp( )
    MPI_Finalize();
 
    if( ud_mr ) err = ibv_dereg_mr(ud_mr);
-   ERRCHECK( err, "Could not deregister memory\n");
+   ERRCHECK( err, "Could not deregister memory");
 
    if( ib_context ) close_context( ib_context );
 }
@@ -556,10 +556,10 @@ char * Module_malloc( uint64_t nbytes )
    void *buf;
 
    int err = posix_memalign( &buf, PAGESIZE, nbytes );
-   ERRCHECK( err, "Could not malloc %lu bytes\n", nbytes);
+   ERRCHECK( err, "Could not malloc %lu bytes", nbytes);
 
    recv_mr = send_mr = ibv_reg_mr(ib_pd, buf, nbytes, allaccess);
-   ERRCHECK( ! recv_mr, "Could't register MR for receive buffer\n");
+   ERRCHECK( ! recv_mr, "Could't register MR for receive buffer");
 
       // Get remote.buf pointer and rkey from mypair for rdma_put
 
@@ -593,7 +593,7 @@ void Module_free( void * buf )
 {
    if( buf == sr_buf ) {
       err = ibv_dereg_mr(send_mr);
-      ERRCHECK( err, "Could not deregister memory\n");
+      ERRCHECK( err, "Could not deregister memory");
 
       free( buf );
    }
@@ -637,7 +637,7 @@ void ready_connection( )
    if( unreliable ) {    // UD
 
       ud_address_handle = ibv_create_ah( ib_pd, &ah_attr );
-      ERRCHECK( ! ud_address_handle, "Could not create UD address handle\n");
+      ERRCHECK( ! ud_address_handle, "Could not create UD address handle");
 
       attributes = IBV_QP_STATE;
 
@@ -654,8 +654,7 @@ void ready_connection( )
       qp_attr.ah_attr = ah_attr;
    }
    err = ibv_modify_qp(ib_qp[0], &qp_attr, attributes);  // Only the first QP recvs
-   ERRCHECK( err == EINVAL, "EINVAL for ibv_modify_qp() - errno = %d\n", err);
-   ERRCHECK( err, "Failed to modify QP to RTR - errno = %d\n", err);
+   ERRCHECK( err, "Failed to modify QP to RTR" );
 
       // Modify my queue pair to the Ready To Send state
 
@@ -676,7 +675,7 @@ void ready_connection( )
    }
    for( i = 0; i < sendqps; i++ ) {  // UD - Stripe sends over multiple QP if requested
       err = ibv_modify_qp(ib_qp[i], &qp_attr, attributes);
-      ERRCHECK( err, "Failed to modify QP %d to RTS - errno = %d\n", i, err);
+      ERRCHECK( err, "Failed to modify QP %d to RTS", i);
    }
 }
 
@@ -687,27 +686,27 @@ void init_context(struct ibv_device *ib_dev)
       // Create the context
 
    ib_context = ibv_open_device(ib_dev);
-   ERRCHECK( ! ib_context, "Couldn't get context for %s\n", ibv_get_device_name( ib_dev ) );
+   ERRCHECK( ! ib_context, "Couldn't get context for %s", ibv_get_device_name( ib_dev ) );
 
       // Create completion channel if using events
 
    if( comp_type == EVENTS ) {
       ib_channel = ibv_create_comp_channel(ib_context);
-      ERRCHECK( ! ib_channel, "Could not allocate send/recv channel\n" );
+      ERRCHECK( ! ib_channel, "Could not allocate send/recv channel" );
    }
 
       // Allocate the protection domain
 
    ib_pd = ibv_alloc_pd(ib_context);
-   ERRCHECK( ! ib_pd, "Couldn't allocate protection domain\n" );
+   ERRCHECK( ! ib_pd, "Couldn't allocate protection domain" );
 
       // Create send and receive completion queues as one
 
    ib_send_cq = ibv_create_cq(ib_context, tx_depth, NULL, ib_channel, 0);
-   ERRCHECK( ! ib_send_cq, "Could not create send completion queue\n" );
+   ERRCHECK( ! ib_send_cq, "Could not create send completion queue" );
 
    ib_recv_cq = ibv_create_cq(ib_context, rx_depth, NULL, ib_channel, 0);
-   ERRCHECK( ! ib_recv_cq, "Could not create recv completion queue\n" );
+   ERRCHECK( ! ib_recv_cq, "Could not create recv completion queue" );
 
       // Create my queue pair   (multiple if UD and striping across send QP)
 
@@ -791,7 +790,7 @@ void init_context(struct ibv_device *ib_dev)
 
    for( i = 0; i < sendqps; i++ ) {
       err = ibv_modify_qp(ib_qp[i], &qp_attr, attributes);
-      ERRCHECK( err , "Could not modify queue pair %d to INIT - %d\n", i, err );
+      ERRCHECK( err , "Could not modify queue pair %d to INIT", i);
    }
 }
 
@@ -801,25 +800,25 @@ void close_context( )
 
    for( i = 0; i < sendqps; i++ ) {
       err = ibv_destroy_qp( ib_qp[i] );
-      ERRCHECK( err, "Could not destroy QP %d\n", i);
+      ERRCHECK( err, "Could not destroy QP %d", i);
    }
 
    err = ibv_destroy_cq( ib_send_cq );
-   ERRCHECK( err, "Could not destroy send CQ (%d)\n", err);
+   ERRCHECK( err, "Could not destroy send CQ");
 
    err = ibv_destroy_cq( ib_recv_cq );
-   ERRCHECK( err, "Could not destroy recv CQ (%d)\n", err);
+   ERRCHECK( err, "Could not destroy recv CQ");
 
    err = ibv_dealloc_pd(ib_pd);
-   ERRCHECK( err, "Could not deallocate PD (%d) %d\n", err, EBUSY);
+   ERRCHECK( err, "Could not deallocate PD");
 
    if( ib_channel ) {
       err = ibv_destroy_comp_channel(ib_channel);
-      ERRCHECK( err, "Could not destroy completion channel (%d)\n", err);
+      ERRCHECK( err, "Could not destroy completion channel");
    }
 
    err = ibv_close_device(ib_context);
-   ERRCHECK( err, "Could not close device (%d)\n", err);
+   ERRCHECK( err, "Could not close device");
 }
 
 
@@ -842,10 +841,7 @@ void post_recv_RC( char *recv_buf, uint32_t msgsize, uint32_t lkey )
    err = ibv_post_recv(ib_qp[0], &wr, &bad_wr);
    recv_posts++;
 
-   ERRCHECK( err == ENOMEM, "ENOMEM wr_id = %lu\n", bad_wr->wr_id);
-   ERRCHECK( err == EFAULT, "EFAULT wr_id = %lu\n", bad_wr->wr_id);
-   ERRCHECK( err == EINVAL, "EINVAL wr_id = %lu\n", bad_wr->wr_id);
-   ERRCHECK( err, "Could not post receive - %d\n", err);
+   ERRCHECK( err, "Could not post receive - wr_id = %lu", bad_wr->wr_id);
 }
 
    // Post a receive for an Unreliable Datagram which requires
@@ -875,10 +871,7 @@ void post_recv_UD( char *recv_buf, uint32_t msgsize, uint32_t lkey )
       err = ibv_post_recv(ib_qp[0], &wr, &bad_wr);  // Always recv on first QP
       recv_posts++;
 
-      ERRCHECK( err == EINVAL, "EINVAL wr_id = %lu\n", bad_wr->wr_id);
-      ERRCHECK( err == ENOMEM, "ENOMEM wr_id = %lu\n", bad_wr->wr_id);
-      ERRCHECK( err == EFAULT, "EFAULT wr_id = %lu\n", bad_wr->wr_id);
-      ERRCHECK( err, "Could not post receive - %d\n", err);
+      ERRCHECK( err, "Could not post receive - wr_id = %lu", bad_wr->wr_id);
    }
 }
 
@@ -907,8 +900,7 @@ void post_send_RC( char *send_buf, uint32_t msgsize, uint32_t lkey )
    err = ibv_post_send(ib_qp[0], &wr, &bad_wr);
    send_posts++;
 
-   ERRCHECK( err == ENOMEM, "ENOMEM wr_id = %lu\n", bad_wr->wr_id);
-   ERRCHECK( err, "Could not post send - %d\n", err);
+   ERRCHECK( err, "Could not post send - wr_id = %lu", bad_wr->wr_id);
 }
 
    // For this try, use separate WR and send posts for each packet
@@ -947,8 +939,7 @@ void post_send_UD( char *send_buf, uint32_t msgsize, uint32_t lkey )
       send_posts++;
    }
 
-   ERRCHECK( err == ENOMEM, "ENOMEM wr_id = %lu\n", bad_wr->wr_id);
-   ERRCHECK( err, "Could not post send - %d\n", err);
+   ERRCHECK( err, "Could not post send - wr_id = %lu", bad_wr->wr_id);
 }
 
    // This tries to use a linked list of WR which I've never gotten to work
@@ -989,8 +980,7 @@ void post_send_UD2( char *send_buf, uint32_t msgsize, uint32_t lkey )
 
    err = ibv_post_send(ib_qp[0], wr, &bad_wr);
    send_posts++;
-   ERRCHECK( err == ENOMEM, "ENOMEM wr_id = %lu\n", bad_wr->wr_id);
-   ERRCHECK( err, "Couldn't post send - %d\n", err);
+   ERRCHECK( err, "Could not post send - wr_id = %lu", bad_wr->wr_id);
 }
 
    // rdma_put will write data directly into the remote buffer
@@ -1019,8 +1009,7 @@ void rdma_put( char *send_buf, uint32_t msgsize, uint32_t lkey,
    dbprintf("%d rdma_put to %p with rkey = %u\n", myproc, recv_buf, rkey);
    err = ibv_post_send(ib_qp[0], &wr, &bad_wr);
    send_posts++;
-   ERRCHECK( err == ENOMEM, "ENOMEM wr_id = %lu\n", bad_wr->wr_id);
-   ERRCHECK( err, "Could not RDMA put - %d\n", err);
+   ERRCHECK( err, "Could not RDMA put - wr_id = %lu", bad_wr->wr_id);
 }
 
    // RC - poll for a signaled receive and clear the unsignaled send
@@ -1061,7 +1050,7 @@ static inline void pollwait( int s_posts, int r_posts )
    }
 
    dbprintf("pollwait wr_id = %lu\n", wc[0].wr_id);
-   ERRCHECK( ne < 0, "poll CQ failed\n");
+   ERRCHECK( ne < 0, "poll CQ failed");
    ERRCHECK( wc[0].status != IBV_WC_SUCCESS, "%d Failed status %s (%d) for wr_id %d\n",
              myproc, ibv_wc_status_str(wc[0].status), wc[0].status, (int) wc[0].wr_id);
    free( wc );

@@ -91,11 +91,11 @@ void Module_Init(int* pargc, char*** pargv)
 void Module_ArgOpt( char *arg, char *opt )
 {
    if(        !strcmp( arg, "maxrate") ) {
-      ERRCHECK( ! opt, "No max theoretical rate was given!\n");
+      ERRCHECK( ! opt, "No max theoretical rate was given!");
       maxrate = atof( opt );
 
    } else if( !strcmp( arg, "latency") ) {
-      ERRCHECK( ! opt, "No latency was given!\n");
+      ERRCHECK( ! opt, "No latency was given!");
       latency = atof( opt );
 
    } else if( !strcmp( arg, "ethernet") || !strcmp( arg, "E") ) {
@@ -117,16 +117,16 @@ void Module_ArgOpt( char *arg, char *opt )
       nheader = 74;    // LRH 8 GRH 40 IBA 12 ext&imm 8? CRC 6
 
    } else if( !strcmp( arg, "mtu") || ! strcmp( arg, "MTU") ) {
-      ERRCHECK( ! opt, "No MTU size was given!\n");
+      ERRCHECK( ! opt, "No MTU size was given!");
       mtu = atoi( opt );
 
    } else if( !strcmp( arg, "inline") ) {
-      ERRCHECK( ! opt, "No max inline value was given!\n");
+      ERRCHECK( ! opt, "No max inline value was given!");
       max_inline = atoi( opt );
       mprintf("Data will be inlined up to %d bytes\n", max_inline);
 
    } else if( !strcmp( arg, "rendezvous") || ! strcmp( arg, "MTU") ) {
-      ERRCHECK( ! opt, "No rendezvous threshold was given!\n");
+      ERRCHECK( ! opt, "No rendezvous threshold was given!");
       rendezvous = atoi( opt );
 
    } else {
@@ -152,9 +152,8 @@ void Module_PrintUsage()
 
 void Module_Setup()
 {
-   ERRCHECK( maxrate <= 0 || latency <= 0, 
-             "You must set the maxrate and latency\n");
-   ERRCHECK( nheader <= 0, "You must specify --ethernet or --infiniband\n");
+   ERRCHECK( maxrate <= 0 || latency <= 0, "You must set the maxrate and latency");
+   ERRCHECK( nheader <= 0, "You must specify --ethernet or --infiniband");
 
    mprintf("Using %lf Gbps with a %lf usec latency for the medium\n", maxrate, latency);
    mprintf("Using a %d byte MTU with a %d byte header\n", mtu, nheader);

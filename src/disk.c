@@ -63,7 +63,7 @@ void Module_ArgOpt( char *arg, char *opt )
    char cmd[120];
 
    if(        !strcmp( arg, "datafile") ) {
-      ERRCHECK( strlen( opt ) == 0 , "No data file name was given\n");
+      ERRCHECK( strlen( opt ) == 0 , "No data file name was given");
       datafile = strdup( opt );
 
    } else if( !strcmp( arg, "read") ) {
@@ -78,7 +78,7 @@ void Module_ArgOpt( char *arg, char *opt )
    } else if( !strcmp( arg, "string") ) {
 
       iotype = 's';
-      ERRCHECK( strlen( opt ) == 0, "No string length given\n");
+      ERRCHECK( strlen( opt ) == 0, "No string length given");
       start = nchar = atoi( opt );
       cbuf = malloc( nchar );
       memset( cbuf, 111, nchar );    // Set string to characters to 'o'
@@ -104,7 +104,7 @@ void Module_ArgOpt( char *arg, char *opt )
       end = 1000000000;   // Test files up to 1 GB in size
       iotype = '0';
       cparg = strdup( "cp" );
-      ERRCHECK( strlen( opt ) == 0, "No data directory name was given\n");
+      ERRCHECK( strlen( opt ) == 0, "No data directory name was given");
       datadir = strdup( opt );
       sprintf(cmd, "mkdir -p %s\n", datadir);
       err = system( cmd );
@@ -116,7 +116,7 @@ void Module_ArgOpt( char *arg, char *opt )
       disk = 10;   // Do 10 file copies per trial
       iotype = '0';
       cparg = strdup( "scp" );
-      ERRCHECK( strlen( opt ) == 0, "No data directory name was given\n");
+      ERRCHECK( strlen( opt ) == 0, "No data directory name was given");
       datadir = strdup( opt );
       ptr = strstr( opt, ":" );
       ssh_host = strndup( opt, ptr-opt);
@@ -129,7 +129,7 @@ void Module_ArgOpt( char *arg, char *opt )
       mprintf("This will test overwriting the file each time\n");
 
    } else if( !strcmp( arg, "createfile") ) {
-      ERRCHECK( strlen( opt ) == 0, "No file size was given\n");
+      ERRCHECK( strlen( opt ) == 0, "No file size was given");
       num_GB = atoi( opt );
       cbuf = malloc( 1 << 30 );
       memset( cbuf, 111, nchar );    // Set string to characters to 'o'
@@ -176,9 +176,9 @@ void Module_Setup()
    //ifd = open( filename, O_CREAT | O_RDWR | O_DSYNC, 0644 );
    ifd = open( filename, O_CREAT | O_RDWR | O_SYNC, 0644 );
    //ifd = open( filename, O_CREAT | O_RDWR | __O_DIRECT, 0644 );
-   ERRCHECK( ! ifd, "Could not open() the data file %s\n", filename);
+   ERRCHECK( ! ifd, "Could not open() the data file %s", filename);
    fd = fdopen( ifd, "w" );
-   ERRCHECK( ! fd, "Could not fopen() the data file %s\n", filename);
+   ERRCHECK( ! fd, "Could not fopen() the data file %s", filename);
 
    if( num_GB > 0 ) {              // Create a large file to clear the memory buffer
 
@@ -324,7 +324,7 @@ void SendData()
          fwrite( s_ptr, nbytes, 1, fd);
 
    } else {
-      ERRCHECK(1, "SendData unknown iofunc %c or iotype %c\n", iofunc, iotype);
+      ERRCHECK(1, "SendData unknown iofunc %c or iotype %c", iofunc, iotype);
    }
 
    if( fs == 0 ) finished = 1;  // Reached end of file on reads
@@ -387,7 +387,7 @@ char *Module_malloc( uint64_t nbytes )  // For file copies, create the file to b
    } else {
 
       posix_memalign( &buf, PAGESIZE, nbytes );
-      ERRCHECK( err, "Could not malloc %ld bytes\n", nbytes);
+      ERRCHECK( err, "Could not malloc %ld bytes", nbytes);
    }
 
    return buf;
