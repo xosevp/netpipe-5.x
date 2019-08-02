@@ -291,9 +291,8 @@ void Module_Setup( )
          if( ib_port_attr.state != IBV_PORT_ACTIVE ) {
             mprintf(" - connection not active\n");
 
-         } else if (((device && !strcmp( device, devname)) || 
-                     (!device && ib_port == 0)) &&
-                    ( port == 0 && ib_port == 0 )) {
+         } else if ( !device ||     // No device and port requested, take the first active
+              (device && (!strcmp( device, devname)) && port == j ) ) { // Req dev & port
 
             ib_port = j;
             max_device_wr = device_attr.max_qp_wr;
@@ -767,7 +766,7 @@ void init_context(struct ibv_device *ib_dev)
 
       ib_qp[i] = ibv_create_qp(ib_pd, &qp_init_attr);
 
-      ERRCHECK( ! ib_qp[i], "Could not create QP %d -- error: %s (%d)\n", i, strerror(errno), errno );
+      ERRCHECK( ! ib_qp[i], "Could not create QP %d", i );
    }
 
    local.qpn = ib_qp[0]->qp_num;    // First QP receives

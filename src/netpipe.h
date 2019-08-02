@@ -104,6 +104,7 @@ int err;
 #define ERRCHECK( _ltrue, _format, _args...) do {         \
    if( _ltrue ) {                                   \
       fprintf(stderr, "\nERROR in %s: " _format, __FUNCTION__, ##_args); \
+      fprintf(stderr, " -- error %d: %s\n", errno, strerror(errno) ); \
       exit(0);                                    \
    }                                               \
 } while(0)
