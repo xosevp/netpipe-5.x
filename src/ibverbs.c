@@ -448,9 +448,11 @@ void PrepostRecv( )
    // Block on receive of all data from my pair
    // 1-sided will spin on over-write of last in buffer
 
+static int nevents = 0;
+
 void RecvData( )
 {
-   static int nevents = 0, rtag = 0;
+   static int rtag = 0;
    //volatile char* v_ptr = &r_ptr[buflen-1];
 
    dbprintf("%d Receiving %d bytes from %d\n", myproc, buflen, mypair);
@@ -813,6 +815,9 @@ void close_context( )
    err = ibv_destroy_cq( ib_send_cq );
    ERRCHECK( err, "Could not destroy send CQ");
 
+   if( nevents > 0 ) {     // Clean up any remaining acks
+      ibv_ack_cq_events(ib_recv_cq, nevents);
+   }
    err = ibv_destroy_cq( ib_recv_cq );
    ERRCHECK( err, "Could not destroy recv CQ");
 
