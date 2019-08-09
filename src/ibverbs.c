@@ -228,6 +228,13 @@ void Module_Setup( )
    ERRCHECK( burst && comm_type == RDMA, 
       "burst mode for RDMA writes currently segfaults");
 
+      // For multiple uni-directional streams in --event mode, the ibverbs comms
+      // interfere with the ibverbs in MPI_Broadcast() for some reason.  Multiple
+      // streams should always be run with --bidir anyway, so just dis-allow
+
+   ERRCHECK( comp_type == EVENTS && nprocs > 2 && ! bidir, 
+      "Multi-stream IBverbs --events only works with --bidir mode");
+
    if( comm_type == RDMA && burst ) {
       if( cache ) mprintf("Setting --nocache as required for burst mode using RDMA\n");
       cache = 0;
@@ -250,10 +257,10 @@ void Module_Setup( )
 
    ERRCHECK( ud_memcpy && ! unreliable, "--memcpy only works with UD");
    ERRCHECK( nacks > 1 && (comp_type != EVENTS), "--acks only works when using events");
-   if( unreliable ) {
+   //if( unreliable ) {
       //end = mtu;
       //mprintf("UD - setting the end to the MTU size of %d bytes\n", mtu);
-   }
+   //}
 
       // Get the list of IB devices on each host
    
@@ -464,7 +471,7 @@ void RecvData( )
          pollwait( send_posts, 1 );  // Poll block on recv and clear send if needed
 
             // Every ibv_get_cq_event() must be acked, but you can do many at once
-            //   running with --nacks #   will set nacks to more than 1
+            //   running with --acks #   will set nacks to more than 1
 
          if( nevents == nacks ) {
             ibv_ack_cq_events(ib_recv_cq, nacks);   // Ack right away
