@@ -202,8 +202,8 @@ void Module_PrintUsage()
    mprintf("  --rdma         use 1-sided RDMA puts\n");
    mprintf("  --inline       Pass small messages inline\n");
    mprintf("  --pinned       (default)  or  --unpinned\n");
-   mprintf("  --device name  (default is the first device found)\n");
-   mprintf("  --port #       (default is the first active port on the device)\n");
+   mprintf("  --device name --port #\n");
+   mprintf("                 (default is the first device and active port found)\n");
 }
 
    // Module_Setup() is called after input options are read in
