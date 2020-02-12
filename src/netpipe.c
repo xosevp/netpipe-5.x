@@ -914,7 +914,7 @@ void CheckBufferData()
    char * mymalloc( uint64_t nbytes ) {
       void *buf = NULL;
       int err = posix_memalign( &buf, PAGESIZE, nbytes );
-      ERRCHECK( err, "Could not malloc %lu bytes", nbytes);
+      ERRCHECK( err, "Could not malloc %d bytes", (int)nbytes);
       return buf;
    }
    void   myfree( char *buf )    { free( buf ); }
@@ -941,7 +941,7 @@ void MallocBufs(  uint64_t size )
       // mymalloc will register memory or allocate from shared pool if necessary
 
    sr_buf = mymalloc( 2*nbytes );  // Uses posix_memalign() to page align
-   ERRCHECK( ! sr_buf, "Can't allocate %lu bytes for send/recv buffers", nbytes);
+   ERRCHECK( ! sr_buf, "Can't allocate %d bytes for send/recv buffers", (int)nbytes);
 
       // Set r_buf to second half and page align both buffers
 
@@ -950,8 +950,8 @@ void MallocBufs(  uint64_t size )
    r_ptr = r_buf  + roffset;   // Allow testing of offsets to page alignment
    s_ptr = s_buf  + soffset;
 
-   dbprintf("%d malloc(%lu)  sr_buf = %p  s_ptr = %p  r_ptr = %p\n", 
-      myproc, 2*nbytes, sr_buf, s_ptr, r_ptr);
+   dbprintf("%d malloc(%d)  sr_buf = %p  s_ptr = %p  r_ptr = %p\n", 
+      myproc, 2*(int)nbytes, sr_buf, s_ptr, r_ptr);
 
       // Do the same for a remote buffer if present for RDMA modules
       // Module_malloc() must have properly set dsr_buf as the remote buffer
@@ -963,8 +963,8 @@ void MallocBufs(  uint64_t size )
       dr_ptr = dr_buf  + roffset;   // Allow testing of offsets to page alignment
       ds_ptr = ds_buf  + soffset;
 
-      dbprintf("%d malloc(%lu) dsr_buf = %p ds_ptr = %p dr_ptr = %p\n", 
-         myproc, 2*nbytes, sr_buf, s_ptr, r_ptr);
+      dbprintf("%d malloc(%d) dsr_buf = %p ds_ptr = %p dr_ptr = %p\n", 
+         myproc, 2*(int)nbytes, sr_buf, s_ptr, r_ptr);
    }
 
       // Set up all pointers for the memcpy.c module

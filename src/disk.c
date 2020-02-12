@@ -385,9 +385,9 @@ char *Module_malloc( uint64_t nbytes )  // For file copies, create the file to b
          // Make source datafile with nbytes size
 
       if( cpflag == 1 ) {
-         sprintf(df, "%s/npdata-in.%lu", datadir, nbytes);
+         sprintf(df, "%s/npdata-in.%d", datadir, (int)nbytes);
       } else {
-         sprintf(df, "npdata-in.%lu", nbytes);
+         sprintf(df, "npdata-in.%d", (int)nbytes);
       }
       lfd = fopen( df, "w" );
       //fd = open( datafile, O_CREAT | O_DIRECT | O_DSYNC, S_IWUSR );

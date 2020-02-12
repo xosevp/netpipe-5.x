@@ -565,7 +565,7 @@ char * Module_malloc( uint64_t nbytes )
    void *buf;
 
    int err = posix_memalign( &buf, PAGESIZE, nbytes );
-   ERRCHECK( err, "Could not malloc %lu bytes", nbytes);
+   ERRCHECK( err, "Could not malloc %d bytes", (int)nbytes);
 
    recv_mr = send_mr = ibv_reg_mr(ib_pd, buf, nbytes, allaccess);
    ERRCHECK( ! recv_mr, "Could't register MR for receive buffer");
@@ -578,12 +578,12 @@ char * Module_malloc( uint64_t nbytes )
       exchange_ib_settings();
 
       dsr_buf = remote.buf;   // Let MallocBufs in netpipe.c finish the setup
-      dbprintf("%d Module_malloc( %lu ) dsr_buf = %p  rkey = %u\n",
-               myproc, nbytes, dsr_buf, recv_mr->rkey);
+      dbprintf("%d Module_malloc( %d ) dsr_buf = %p  rkey = %u\n",
+               myproc, (int)nbytes, dsr_buf, recv_mr->rkey);
    }
 
-   dbprintf("%d Module_malloc( %lu ) registered sr_buf = %p  lkey = %u\n",
-             myproc, nbytes, buf, recv_mr->lkey);
+   dbprintf("%d Module_malloc( %d ) registered sr_buf = %p  lkey = %u\n",
+             myproc, (int)nbytes, buf, recv_mr->lkey);
 
    return buf;
 }
@@ -853,7 +853,7 @@ void post_recv_RC( char *recv_buf, uint32_t msgsize, uint32_t lkey )
    err = ibv_post_recv(ib_qp[0], &wr, &bad_wr);
    recv_posts++;
 
-   ERRCHECK( err, "Could not post receive - wr_id = %lu", bad_wr->wr_id);
+   ERRCHECK( err, "Could not post receive - wr_id = %d", (int)bad_wr->wr_id);
 }
 
    // Post a receive for an Unreliable Datagram which requires
@@ -883,7 +883,7 @@ void post_recv_UD( char *recv_buf, uint32_t msgsize, uint32_t lkey )
       err = ibv_post_recv(ib_qp[0], &wr, &bad_wr);  // Always recv on first QP
       recv_posts++;
 
-      ERRCHECK( err, "Could not post receive - wr_id = %lu", bad_wr->wr_id);
+      ERRCHECK( err, "Could not post receive - wr_id = %d", (int)bad_wr->wr_id);
    }
 }
 
@@ -912,7 +912,7 @@ void post_send_RC( char *send_buf, uint32_t msgsize, uint32_t lkey )
    err = ibv_post_send(ib_qp[0], &wr, &bad_wr);
    send_posts++;
 
-   ERRCHECK( err, "Could not post send - wr_id = %lu", bad_wr->wr_id);
+   ERRCHECK( err, "Could not post send - wr_id = %d", (int)bad_wr->wr_id);
 }
 
    // For this try, use separate WR and send posts for each packet
@@ -951,7 +951,7 @@ void post_send_UD( char *send_buf, uint32_t msgsize, uint32_t lkey )
       send_posts++;
    }
 
-   ERRCHECK( err, "Could not post send - wr_id = %lu", bad_wr->wr_id);
+   ERRCHECK( err, "Could not post send - wr_id = %d", (int)bad_wr->wr_id);
 }
 
    // This tries to use a linked list of WR which I've never gotten to work
@@ -992,7 +992,7 @@ void post_send_UD2( char *send_buf, uint32_t msgsize, uint32_t lkey )
 
    err = ibv_post_send(ib_qp[0], wr, &bad_wr);
    send_posts++;
-   ERRCHECK( err, "Could not post send - wr_id = %lu", bad_wr->wr_id);
+   ERRCHECK( err, "Could not post send - wr_id = %d", (int)bad_wr->wr_id);
 }
 
    // rdma_put will write data directly into the remote buffer
@@ -1021,7 +1021,7 @@ void rdma_put( char *send_buf, uint32_t msgsize, uint32_t lkey,
    dbprintf("%d rdma_put to %p with rkey = %u\n", myproc, recv_buf, rkey);
    err = ibv_post_send(ib_qp[0], &wr, &bad_wr);
    send_posts++;
-   ERRCHECK( err, "Could not RDMA put - wr_id = %lu", bad_wr->wr_id);
+   ERRCHECK( err, "Could not RDMA put - wr_id = %d", (int)bad_wr->wr_id);
 }
 
    // RC - poll for a signaled receive and clear the unsignaled send
@@ -1041,8 +1041,8 @@ static inline void pollwait( int s_posts, int r_posts )
    while( ne >= 0 && s_posts > 0 ) {   // ne < 0 means an error
       ne = ibv_poll_cq(ib_send_cq, s_posts, wc);
       if( ne > 0 ) {
-         dbprintf("%d pollwait cleared %d of %d send posts %lu\n",
-            myproc, ne, s_posts, wc[0].wr_id);
+         dbprintf("%d pollwait cleared %d of %d send posts %d\n",
+            myproc, ne, s_posts, (int)wc[0].wr_id);
          s_posts -= ne;
          send_posts -= ne;
       }
@@ -1053,15 +1053,15 @@ static inline void pollwait( int s_posts, int r_posts )
    while( ne >= 0 && r_posts > 0 ) {   // ne < 0 means an error
       ne = ibv_poll_cq(ib_recv_cq, r_posts, wc);
       if( ne > 0 ) {
-         dbprintf("%d pollwait found %d of %d recv posts %lu\n",
-            myproc, ne, r_posts, wc[0].wr_id);
+         dbprintf("%d pollwait found %d of %d recv posts %d\n",
+            myproc, ne, r_posts, (int)wc[0].wr_id);
          r_posts -= ne;
          recv_posts -= ne;
       }
       //sched_yield();
    }
 
-   dbprintf("pollwait wr_id = %lu\n", wc[0].wr_id);
+   dbprintf("pollwait wr_id = %d\n", (int)wc[0].wr_id);
    ERRCHECK( ne < 0, "poll CQ failed");
    ERRCHECK( wc[0].status != IBV_WC_SUCCESS, "%d Failed status %s (%d) for wr_id %d\n",
              myproc, ibv_wc_status_str(wc[0].status), wc[0].status, (int) wc[0].wr_id);
