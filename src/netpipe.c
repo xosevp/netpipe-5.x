@@ -1131,7 +1131,7 @@ char * bitstring( double gbps )
 
 char * timestring( double secs )
 {
-   char bstring[23];
+   char bstring[32];
 
    if( secs < 1.0e-6) {
       sprintf( bstring, YELLOW  "%7.3lf nsecs" RESET, secs*1e9);
