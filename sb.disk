@@ -1,14 +1,12 @@
 #!/bin/bash -l
 #SBATCH --job-name=netpipe
 #SBATCH --output=netpipe.o%j
-#SBATCH --time=25:00:00
+#SBATCH --time=24:00:00
 #SBATCH --mem=100G
-#SBATCH --nodes=1
+#SBATCH --nodes=2
 #SBATCH --ntasks-per-node=24
 ##SBATCH --constraint=heroes
-#SBATCH --nodelist=hero35
-##SBATCH --nodelist=elf22
-#SBATCH --partition=ksu-cis-hpc.q,batch.q
+#SBATCH --nodelist=hero35,hero36
 #SBATCH --tmp=100G
 
 host=`echo $SLURM_JOB_NODELIST | sed s/[^a-z]/\ /g | cut -f 1 -d ' '`
@@ -21,8 +19,18 @@ echo "*******************************************************************"
 echo "Running on $SLURM_NNODES nodes $nprocs cores on nodes $SLURM_JOB_NODELIST"
 echo "*******************************************************************"
 
-rw="${host}.write.o_sync"
-opts="--write --binary --start 100000 --end 1000000000"
+opts="--binary --start 100000 --end 1000000000"
+nprocs=1
+
+rm npdisk.binary*
+
+mpirun -np $nprocs --host hero35 NPdisk $opts --write --datafile ./npdisk.binary -o np.${host}.binary.write.mpi$nprocs
+
+mpirun -np $nprocs --host hero36 NPdisk $opts --read  --datafile ./npdisk.binary -o np.${host}.binary.read.mpi$nprocs
+
+
+
+exit
 
 rm -f ./npdisk.binary* /bulk/daveturner/npdisk.binary* /scratch/daveturner/npdisk.binary*
 mpirun -np $nprocs NPdisk $opts --datafile ./npdisk.binary -o np.${rw}.binary.homes.mpi24

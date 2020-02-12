@@ -177,8 +177,8 @@ void Module_Setup()
    ifd = open( filename, O_CREAT | O_RDWR | O_SYNC, 0644 );
    //ifd = open( filename, O_CREAT | O_RDWR | __O_DIRECT, 0644 );
    ERRCHECK( ! ifd, "Could not open() the data file %s\n", filename);
-   fd = fdopen( ifd, "w" );
-   ERRCHECK( ! fd, "Could not fopen() the data file %s\n", filename);
+   fd = fdopen( ifd, "w+" );   // Yes, w+ really is needed to match O_RDWR :)
+   ERRCHECK( ! fd, "Could not fdopen() the data file %s\n", filename);
 
    if( num_GB > 0 ) {              // Create a large file to clear the memory buffer
 
@@ -286,8 +286,8 @@ void SendData()
 
          fs = fread( s_ptr, sizeof(char), nbytes, fd);
 
-         if( ferror( fd ) ) {
-            printf("Proc %d failed a read of %d bytes fs=%d s_ptr=%p\n", myproc, nbytes, fs, s_ptr);
+         if( ferror( fd ) || fs != nbytes ) {
+            printf("Proc %d failed a read of %d bytes fs=%d\n", myproc, nbytes, fs );
             clearerr( fd );
          }
 
@@ -321,15 +321,15 @@ void SendData()
 
          dvar = (double) n_static / 3.0;
          for( n = 0; n < nbytes; n += sizeof(double) ) {
-            fwrite( &dvar, sizeof(double), 1, fd);
+            fs = fwrite( &dvar, sizeof(double), 1, fd);
          }
 
    } else if( iofunc == 'w' && iotype == 'b' ) {   // Stream char to binary file
 
-         fwrite( s_ptr, nbytes, 1, fd);
+         fs = fwrite( s_ptr, nbytes, 1, fd);
 
-         if( ferror( fd ) ) {
-            printf("Proc %d failed a write of %d bytes fs=%d s_ptr=%p\n", myproc, nbytes, fs, s_ptr);
+         if( ferror( fd ) || fs != nbytes ) {
+            printf("Proc %d failed a write of %d bytes fs=%d\n", myproc, nbytes, fs );
             clearerr( fd );
          }
 
