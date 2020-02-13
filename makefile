@@ -31,7 +31,11 @@
 ########################################################################
 
 CC         = gcc
-CFLAGS     = -g -O3 -Wall -lrt
+ifdef MACOSX_DEPLOYMENT_TARGET
+   CFLAGS     = -g -O3 -Wall
+else
+   CFLAGS     = -g -O3 -Wall -lrt
+endif
 SRC        = ./src
 
 # Set -DNOCOLOR if you want to live in a dull and boring world
